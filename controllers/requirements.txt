@@ -1,2 +1,2 @@
 # Add any needed requirement for your controllers
-numpy==1.21.4
+numpy==1.19.5
