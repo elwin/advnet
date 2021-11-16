@@ -1,0 +1,29 @@
+{  
+    "add_links_constrains": {
+        "max_links": 3,
+        "max_total_bw": 30,
+        "max_bw": 10
+    },
+    "failure_constrains": {
+        "min_start": 5, 
+        "max_time": 50, 
+        "time_budget": 30
+    },
+    "additional_traffic_constrains": {
+        "min_start": 0,
+        "max_time" : 60,
+        "max_traffic": "200MB", 
+        "min_rate": "100Kbps",
+        "max_rate": "10Mbps",
+        "max_flows": 1000,
+        "protocols": ["udp"], 
+        "port_range": [60001, 65000]
+    },
+    "base_traffic_constrains": {
+        "min_start": 0,
+        "max_time" : 60,
+        "protocols": ["udp", "tcp"],
+        "port_range": [1, 60000], 
+        "max_flows": 1000
+    }
+}
