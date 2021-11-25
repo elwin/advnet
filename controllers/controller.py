@@ -1,16 +1,18 @@
-"""Template of an empty global controller"""
 import argparse
 
-import numpy as np
 from p4utils.utils.helper import load_topo
-from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
+
+try:
+    from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
+except ModuleNotFoundError:
+    from mock_simple_switch import SimpleSwitchThriftAPI
 
 
 class Controller(object):
 
     def __init__(self, base_traffic):
         self.base_traffic_file = base_traffic
-        self.topo = load_topo('topology.json')
+        self.topology = load_topo('topology.json')
         self.controllers = {}
         self.init()
 
@@ -22,165 +24,77 @@ class Controller(object):
 
     def reset_states(self):
         """Resets switches state"""
-        [controller.reset_state() for controller in self.controllers.values()]
+        [ctrl.reset_state() for ctrl in self.controllers.values()]
 
     def connect_to_switches(self):
         """Connects to switches"""
-        for p4switch in self.topo.get_p4switches():
-            thrift_port = self.topo.get_thrift_port(p4switch)
+        for p4switch in self.topology.get_p4switches():
+            thrift_port = self.topology.get_thrift_port(p4switch)
             self.controllers[p4switch] = SimpleSwitchThriftAPI(thrift_port)
 
     def set_table_defaults(self):
-        for controller in self.controllers.values():
-            controller.table_set_default("ipv4_lpm", "drop", [])
-            controller.table_set_default("ecmp_group_to_nhop", "drop", [])
+        for ctrl in self.controllers.values():
+            ctrl.table_set_default("ipv4_lpm", "drop", [])
+            ctrl.table_set_default("ecmp_group_to_nhop", "drop", [])
+
+    def get_egress_port(self, src, dst):
+        interface_info = self.topology.get_node_intfs(fields=['node_neigh', 'port'])
+        for dst_cur, dst_port in interface_info[src].values():
+            if dst == dst_cur:
+                return dst_port
+
+        raise Exception(f'no interface found between {src} and {dst}')
 
     def run(self):
-        """Run function"""
-        get_switches_names = self.topo.get_p4switches()
-        switches_list = list(get_switches_names.keys())
+        switches = list(self.topology.get_p4switches().keys())
+        prefix = 32
 
-        prefix = "/32"
+        # Add table entries for directly connected hosts
+        for switch in switches:
+            ctrl = self.controllers[switch]
 
-        # Create arrays to save number of shortest paths and next hops
-        shortest_path_num = np.zeros((len(switches_list), len(switches_list)), dtype=int)
-        shortest_path_next_hop = []
+            for host in self.topology.get_hosts_connected_to(switch):
+                host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
+                host_mac = self.topology.get_host_mac(host)
+                host_port = self.get_egress_port(switch, host)
+                ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(host_port)])
 
-        # Compute shortest paths
-        for i in switches_list:
-            src_next_hops = []
-            for j in switches_list:
-                dst_next_hops = []
-                src_ind = switches_list.index(i)
-                dst_ind = switches_list.index(j)
-                shortest_path = self.topo.get_shortest_paths_between_nodes(str(i), str(j))
-                for k in range(len(shortest_path)):
-                    if len(shortest_path[k]) > 1:
-                        dst_next_hops.append(shortest_path[k][1])
-                    else:
-                        dst_next_hops.append(shortest_path[k][0])
-                src_next_hops.append(dst_next_hops)
-                shortest_path_num[src_ind][dst_ind] = len(shortest_path)
-            shortest_path_next_hop.append(src_next_hops)
+        for src_switch in switches:
 
-        # Populate tables
-        src_sw = 0
-        ecmp_group_id = 0
-        max_group_id = 0
-
-        # Iterate over different source switches
-        for controller in self.controllers.values():
-
-            # Array used for next hops
-            next_hops_save = []
-
-            direct_hosts = self.topo.get_hosts_connected_to(str(switches_list[src_sw]))
-            # print(direct_hosts)
-
-            for host in direct_hosts:
-                host_ip = self.topo.get_host_ip(host) + prefix
-                host_mac = self.topo.get_host_mac(host)
-                interf_info = self.topo.get_node_intfs(fields=['node_neigh', 'port'])
-                interf_info_sw = interf_info[str(switches_list[src_sw])]
-                for i in interf_info_sw:
-                    if interf_info_sw[i][0] == host:
-                        host_port = interf_info_sw[i][1]
-                        break
-                # Add table entries for directly connected hosts
-                controller.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(host_port)])
-
-            for dst_sw in range(len(switches_list)):
-
-                # If src and dst switches are the same
-                if src_sw == dst_sw:
+            for ecmp_group, dst_switch in enumerate(switches):
+                if src_switch == dst_switch:
                     continue
 
-                # If src and dst switches are different
+                ctrl = self.controllers[src_switch]
+                paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
+
+                if len(paths) == 0:
+                    raise Exception(f'no paths found between {src_switch} and {dst_switch}')
+                elif len(paths) == 1:
+                    path = paths[0]
+                    for host in self.topology.get_hosts_connected_to(dst_switch):
+                        host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
+                        host_mac = self.topology.get_host_mac(host)
+                        egress_port = self.get_egress_port(src_switch, path[1])
+
+                        ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [host_mac, str(egress_port)])
                 else:
+                    for host in self.topology.get_hosts_connected_to(dst_switch):
+                        host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
 
-                    # If single shortest path
-                    if shortest_path_num[src_sw][dst_sw] == 1:
+                        ctrl.table_add("ipv4_lpm", "ecmp_group", [host_ip], [str(ecmp_group), str(len(paths))])
 
-                        # Find next hop port
-                        next_hop = shortest_path_next_hop[src_sw][dst_sw][0]
-                        interf_info = self.topo.get_node_intfs(fields=['node_neigh', 'port'])
-                        interf_info_sw = interf_info[str(switches_list[src_sw])]
-                        for i in interf_info_sw:
-                            if interf_info_sw[i][0] == next_hop:
-                                next_hop_port = interf_info_sw[i][1]
-                                break
-                        # Find ip and mac addr of dst host
-                        dst_dct_hosts = self.topo.get_hosts_connected_to(str(switches_list[dst_sw]))
-                        for host in dst_dct_hosts:
-                            host_ip = self.topo.get_host_ip(host) + prefix
-                            host_mac = self.topo.get_host_mac(host)
-                            # Add table entries for directly connected hosts
-                            controller.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(next_hop_port)])
+                    for i, path in enumerate(paths):
+                        next_hop = path[1]
+                        egress_port = self.get_egress_port(src_switch, next_hop)
+                        next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
 
-                    # If multiple shortest paths
-                    else:
-
-                        # Find number of next hops
-                        no_next_hops = shortest_path_num[src_sw][dst_sw]
-
-                        # Save next hops for comparison later
-                        if len(next_hops_save) == 0:
-                            first_next_hops = []
-                            for nhop in range(no_next_hops):
-                                first_next_hops.append(shortest_path_next_hop[src_sw][dst_sw][nhop])
-                            next_hops_save.append(first_next_hops)
-
-                        # Compare next hops
-                        else:
-                            exists = False
-                            current_next_hops_save = []
-                            # Load current next hops
-                            for nhop in range(shortest_path_num[src_sw][dst_sw]):
-                                current_next_hops_save.append(shortest_path_next_hop[src_sw][dst_sw][nhop])
-                            # Compare with the existing ecmp_group_ids
-                            for group in range(len(next_hops_save)):
-                                if set(next_hops_save[group]) == set(current_next_hops_save):
-                                    ecmp_group_id = group
-                                    exists = True
-                                    break
-                                else:
-                                    continue
-
-                            # Create new ecmp_group_id
-                            if not exists:
-                                max_group_id = max_group_id + 1
-                                ecmp_group_id = max_group_id
-                                next_hops_save.append(current_next_hops_save)
-
-                        # Find ip addr of dst host
-                        dst_dct_hosts = self.topo.get_hosts_connected_to(str(switches_list[dst_sw]))
-                        for host in dst_dct_hosts:
-                            host_ip = self.topo.get_host_ip(host) + prefix
-                            # Add table entries for directly connected hosts
-                            controller.table_add("ipv4_lpm", "ecmp_group", [str(host_ip)],
-                                                 [str(ecmp_group_id), str(no_next_hops)])
-
-                        # Add entries in the table ecmp_group_to_nhop for every next hop
-                        # Get mac addr and port for next hops
-                        for i in range(no_next_hops):
-                            next_hop = shortest_path_next_hop[src_sw][dst_sw][i]
-                            dst_dct_hosts = self.topo.get_hosts_connected_to(str(switches_list[dst_sw]))
-                            for host in dst_dct_hosts:
-                                host_mac = self.topo.get_host_mac(host)
-                                interf_info = self.topo.get_node_intfs(fields=['node_neigh', 'port'])
-                                interf_info_sw = interf_info[str(switches_list[src_sw])]
-                                for m in interf_info_sw:
-                                    if interf_info_sw[m][0] == next_hop:
-                                        next_hop_port = interf_info_sw[m][1]
-                                        break
-                                # Add new ecmp_group in the table
-                                controller.table_add("ecmp_group_to_nhop", "set_nhop", [str(ecmp_group_id), str(i)],
-                                                     [host_mac, str(next_hop_port)])
-
-            print("Done with source switch: {}".format(src_sw + 1))
-            print()
-            print()
-            src_sw = src_sw + 1
+                        ctrl.table_add(
+                            "ecmp_group_to_nhop",
+                            "set_nhop",
+                            [str(ecmp_group), str(i)],
+                            [next_hop_mac, str(egress_port)],
+                        )
 
     def main(self):
         """Main function"""
@@ -189,8 +103,8 @@ class Controller(object):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--base-traffic', help='Path to scenario.base-traffic',
-                        type=str, required=False, default='')
+    parser.add_argument('--base-traffic', help='Path to scenario.base-traffic', type=str, required=False, default='')
+    parser.add_argument('--slas', help='Path to scenario.slas', type=str, required=False, default='')
     return parser.parse_args()
 
 

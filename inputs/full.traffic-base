@@ -1,0 +1,53 @@
+src, dst, sport, dport, protocol, rate, size, duration, start_time
+AMS_h0,PAR_h0,1,13,tcp,, 10MB,,1
+PAR_h0,MAD_h0,2,14,tcp,, 10MB,,1
+LON_h0,BAR_h0,3,15,udp,10Mbps,,10,1
+AMS_h0,MAD_h0,4,16,tcp,, 10MB,,5
+AMS_h0,PAR_h0,5,17,tcp,, 10MB,,20
+PAR_h0,MAD_h0,6,18,tcp,, 10MB,,20
+LON_h0,BAR_h0,7,19,udp,10Mbps,,10,25
+AMS_h0,MAD_h0,8,20,tcp,, 10MB,,20
+AMS_h0,PAR_h0,9,21,tcp,, 10MB,,45
+PAR_h0,MAD_h0,10,22,tcp,, 10MB,,40
+LON_h0,BAR_h0,11,23,udp,10Mbps,,10,45
+AMS_h0,MAD_h0,12,24,tcp,, 10MB,,40
+POR_h0,LON_h0,101,113,udp,10Mbps,,10,5
+LIS_h0,LON_h0,102,114,tcp,, 10MB,,5
+POR_h0,PAR_h0,103,115,tcp,, 10MB,,1
+MAD_h0,AMS_h0,104,116,tcp,, 10MB,,1
+POR_h0,LON_h0,105,117,udp,10Mbps,,10,20
+LIS_h0,LON_h0,106,118,tcp,, 10MB,,25
+POR_h0,PAR_h0,107,119,tcp,, 10MB,,20
+MAD_h0,AMS_h0,108,120,tcp,, 10MB,,25
+POR_h0,LON_h0,109,121,udp,10Mbps,,10,45
+LIS_h0,LON_h0,110,122,tcp,, 10MB,,40
+POR_h0,PAR_h0,111,123,tcp,, 10MB,,40
+MAD_h0,AMS_h0,112,124,tcp,, 10MB,,45
+BER_h0,MUN_h0,201,221,udp,10Mbps,,10,34
+BER_h0,FRA_h0,202,222,udp,10Mbps,,10,31
+MUN_h0,FRA_h0,203,223,tcp,, 10MB,,34
+EIN_h0,AMS_h0,204,224,udp,10Mbps,,10,9
+GLO_h0,LON_h0,205,225,tcp,, 10MB,,27
+LON_h0,BRI_h0,206,226,tcp,, 10MB,,33
+MAN_h0,BRI_h0,207,227,udp,10Mbps,,10,13
+LIL_h0,PAR_h0,208,228,tcp,, 10MB,,36
+PAR_h0,REN_h0,209,229,udp,10Mbps,,10,9
+LIL_h0,REN_h0,210,230,udp,10Mbps,,10,11
+LIL_h0,EIN_h0,211,231,tcp,, 10MB,,40
+EIN_h0,REN_h0,212,232,tcp,, 10MB,,29
+EIN_h0,BRI_h0,213,233,udp,10Mbps,,10,17
+BAR_h0,MAD_h0,214,234,tcp,, 10MB,,12
+MAD_h0,BAR_h0,215,235,udp,10Mbps,,10,29
+POR_h0,MAD_h0,216,236,tcp,, 10MB,,19
+MAD_h0,POR_h0,217,237,udp,10Mbps,,10,18
+LIS_h0,POR_h0,218,238,udp,10Mbps,,10,14
+LIS_h0,MAD_h0,219,239,udp,10Mbps,,10,3
+BAR_h0,POR_h0,220,240,tcp,, 10MB,,31
+MUN_h0,MAD_h0,301,309,tcp,, 10MB,,25
+BER_h0,LIS_h0,302,310,udp,1Mbps,,5,4
+REN_h0,POR_h0,303,311,tcp,, 10MB,,34
+BRI_h0,BAR_h0,304,312,udp,1Mbps,,10,21
+LIL_h0,GLO_h0,305,313,tcp,, 10MB,,33
+MAD_h0,EIN_h0,306,314,tcp,, 10MB,,2
+LIS_h0,BER_h0,307,315,udp,1Mbps,,15,35
+POR_h0,GLO_h0,308,316,udp,1Mbps,,5,37
