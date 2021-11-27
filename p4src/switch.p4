@@ -116,8 +116,10 @@ control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
 
-    apply {
+    counter(8, CounterType.packets_and_bytes) port_counter;
 
+    apply {
+        port_counter.count((bit<32>)standard_metadata.egress_port);
     }
 }
 

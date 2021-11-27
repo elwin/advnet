@@ -1,6 +1,8 @@
 class SimpleSwitchThriftAPI:
     def __init__(self, thrift_port):
         self.thrift_port = thrift_port
+        self.packets = 0
+        self.bytes = 0
         pass
 
     def table_set_default(self, table_name, action_name, action_params=[]):
@@ -12,3 +14,8 @@ class SimpleSwitchThriftAPI:
     def table_add(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
                   byts=None):
         print(f'[{self.thrift_port}] <table add> {table_name} {action_name} {match_keys} {action_params}')
+
+    def counter_read(self, counter_name: str, index: int):
+        self.bytes += 100
+        self.packets += 1
+        return self.bytes, self.packets

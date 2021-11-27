@@ -1,4 +1,8 @@
 import argparse
+import itertools
+import operator
+import threading
+import time
 
 from p4utils.utils.helper import load_topo
 
@@ -12,9 +16,25 @@ class Controller(object):
 
     def __init__(self, base_traffic):
         self.base_traffic_file = base_traffic
-        self.topology = load_topo('topology.json')
+        self.topology = self.load_topology()
         self.controllers = {}
+        self.last_measurement = {}
         self.init()
+
+    @staticmethod
+    def load_topology():
+        topology = load_topo('topology.json')
+        for src, dst in itertools.combinations(topology.nodes, 2):
+            if dst not in topology[src] or 'delay' not in topology[src][dst]:
+                continue
+
+            delay = topology[src][dst]['delay']
+            if not delay.endswith('ms'):
+                raise Exception('weird delay format')
+
+            topology[src][dst]['weight'] = float(delay[:-2])
+
+        return topology
 
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
@@ -60,7 +80,6 @@ class Controller(object):
                 ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(host_port)])
 
         for src_switch in switches:
-
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
@@ -96,9 +115,39 @@ class Controller(object):
                             [next_hop_mac, str(egress_port)],
                         )
 
+    def monitor_rates(self):
+        switches = list(self.topology.get_p4switches().keys())
+
+        for src_switch, dst_switch in itertools.permutations(switches, 2):
+            if self.topology.are_neighbors(src_switch, dst_switch):
+                self.last_measurement[src_switch, dst_switch] = (time.time(), 0, 0)
+
+        while not time.sleep(1):
+            for src_switch, dst_switch in self.last_measurement:
+                conn = src_switch, dst_switch
+                ctrl = self.controllers[src_switch]
+
+                bytes_count, packet_count = ctrl.counter_read(
+                    'port_counter',
+                    self.get_egress_port(src_switch, dst_switch),
+                )
+
+                prev = self.last_measurement[conn]
+                cur = (time.time(), bytes_count, packet_count)
+                diff = tuple(map(operator.sub, cur, prev))
+                self.last_measurement[conn] = cur
+
+                bytes_rate = diff[1] / diff[0] / 1000 / 1000 * 8
+                packet_rate = diff[2] / diff[0]
+                print(f'[Bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
+
     def main(self):
         """Main function"""
         self.run()
+
+        threading.Thread(target=self.monitor_rates).start()
+
+        time.sleep(120)
 
 
 def get_args():
