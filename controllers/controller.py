@@ -1,8 +1,12 @@
 import argparse
+import codecs
 import itertools
 import operator
+import socket
+import struct
 import threading
 import time
+import typing
 
 from p4utils.utils.helper import load_topo
 
@@ -17,8 +21,10 @@ class Controller(object):
     def __init__(self, base_traffic):
         self.base_traffic_file = base_traffic
         self.topology = self.load_topology()
-        self.controllers = {}
-        self.last_measurement = {}
+        self.controllers: typing.Dict[str, SimpleSwitchThriftAPI] = {}
+        self.sockets: typing.Dict[str, socket.socket] = {}
+        self.links: typing.Dict[typing.Tuple[str, str], bool] = {}
+        self.last_measurements: typing.Dict[typing.Tuple, typing.List] = {}
         self.init()
 
     @staticmethod
@@ -39,12 +45,28 @@ class Controller(object):
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
         self.connect_to_switches()
+        self.connect_to_sockets()
+        self.set_links()
         self.reset_states()
         self.set_table_defaults()
 
     def reset_states(self):
         """Resets switches state"""
         [ctrl.reset_state() for ctrl in self.controllers.values()]
+
+    def set_links(self):
+        for src, dst in itertools.permutations(self.switches(), 2):
+            self.links[(src, dst)] = True
+
+    def connect_to_sockets(self):
+        for p4switch in self.topology.get_p4switches():
+            cpu_interface = self.topology.get_cpu_port_intf(p4switch)
+            send_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            send_socket.bind((cpu_interface, 0))
+
+            self.sockets[p4switch] = send_socket
+
+        print(f'connected to all sockets')
 
     def connect_to_switches(self):
         """Connects to switches"""
@@ -115,31 +137,75 @@ class Controller(object):
                             [next_hop_mac, str(egress_port)],
                         )
 
+    def send_heartbeat(self, src, dst):
+        src_mac = self.topology.node_to_node_mac(src, dst)
+        dst_mac = self.topology.node_to_node_mac(dst, src)
+        egress_port = self.topology.node_to_node_port_num(src, dst)
+
+        # ethernet
+        src_bytes = b"".join([codecs.decode(x, 'hex') for x in src_mac.split(":")])
+        dst_bytes = b"".join([codecs.decode(x, 'hex') for x in dst_mac.split(":")])
+
+        # probably wrong, dst comes first, but we ignore those fields anyway (for now)
+        eth = src_bytes + dst_bytes + struct.pack("!H", 0x1234)
+
+        # heart beat
+        heartbeat = egress_port << 7 | (1 << 6)  # port | cpu_bit
+        heartbeat = struct.pack("!H", heartbeat)
+        heartbeat = eth + heartbeat
+
+        self.sockets[src].send(heartbeat)
+
+        print(f'[heartbeat] sent heartbeat {src} -> {dst}')
+
+    def switches(self):
+        return list(self.topology.get_p4switches().keys())
+
     def monitor_rates(self):
+        buffer_size = 8
         switches = list(self.topology.get_p4switches().keys())
 
         for src_switch, dst_switch in itertools.permutations(switches, 2):
             if self.topology.are_neighbors(src_switch, dst_switch):
-                self.last_measurement[src_switch, dst_switch] = (time.time(), 0, 0)
+                self.last_measurements[src_switch, dst_switch] = [(time.time(), 0, 0)]
 
-        while not time.sleep(1):
-            for src_switch, dst_switch in self.last_measurement:
+        while not time.sleep(0.25):
+            for src_switch, dst_switch in self.last_measurements:
                 conn = src_switch, dst_switch
-                ctrl = self.controllers[src_switch]
+                ctrl = self.controllers[dst_switch]
 
                 bytes_count, packet_count = ctrl.counter_read(
                     'port_counter',
-                    self.get_egress_port(src_switch, dst_switch),
+                    # we're looking at the ingress, thus its reversed
+                    self.topology.node_to_node_port_num(dst_switch, src_switch),
                 )
 
-                prev = self.last_measurement[conn]
-                cur = (time.time(), bytes_count, packet_count)
-                diff = tuple(map(operator.sub, cur, prev))
-                self.last_measurement[conn] = cur
+                cur = time.time(), bytes_count, packet_count
+                self.last_measurements[conn].append(cur)
+                self.last_measurements[conn] = self.last_measurements[conn][-buffer_size:]
+                if len(self.last_measurements[conn]) < buffer_size:
+                    # only start making decisions once our buffer is filled
+                    self.send_heartbeat(src_switch, dst_switch)
+                    continue
 
-                bytes_rate = diff[1] / diff[0] / 1000 / 1000 * 8
-                packet_rate = diff[2] / diff[0]
-                print(f'[Bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
+                diff_lg = tuple(map(operator.sub, cur, self.last_measurements[conn][-3]))
+                diff_sm = tuple(map(operator.sub, cur, self.last_measurements[conn][-2]))
+
+                bytes_rate = diff_lg[1] / diff_lg[0] / 1000 / 1000 * 8
+                packet_rate = diff_lg[2] / diff_lg[0]
+
+                print(f'[bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
+
+                if diff_sm[2] == 0:  # no change in packet in the last 0.25s
+                    self.send_heartbeat(src_switch, dst_switch)
+
+                if self.links[(src_switch, dst_switch)] and diff_lg[2] == 0:
+                    print(f'[link] {src_switch} -> {dst_switch} is down')
+                    self.links[(src_switch, dst_switch)] = False
+
+                if not self.links[(src_switch, dst_switch)] and diff_sm[2] > 0:
+                    print(f'[link] {src_switch} -> {dst_switch} is up')
+                    self.links[(src_switch, dst_switch)] = True
 
     def main(self):
         """Main function"""

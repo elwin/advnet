@@ -17,9 +17,15 @@ parser MyParser(packet_in packet,
 
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType){
+            HEARTBEAT: parse_heartbeat;
             TYPE_IPV4: parse_ipv4;
             default: accept;
         }
+    }
+
+    state parse_heartbeat {
+        packet.extract(hdr.heartbeat);
+        transition accept;
     }
 
     state parse_ipv4 {

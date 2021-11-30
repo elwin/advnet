@@ -7,7 +7,10 @@
 #include "include/parsers.p4"
 
 //My defines
-//ADD DEFINES
+#define N_PREFS 1024
+#define PORT_WIDTH 32
+#define N_PORTS 32
+
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -25,14 +28,24 @@ control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
+    // Register containing link states. 0: No Problems. 1: Link failure.
+    register<bit<1>>(N_PORTS) linkState;
+    counter(32, CounterType.packets_and_bytes) port_counter;
+
     action drop() {
         mark_to_drop(standard_metadata);
+    }
+
+    action send_heartbeat(){
+        // we make sure the other switch treats the packet as probe from the other side
+        hdr.heartbeat.from_cp = 0;
+        standard_metadata.egress_spec = hdr.heartbeat.port;
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
 
         bit<48> tmpAddr;
-        tmpAddr = hdr.ethernet.dstAddr; 
+        tmpAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         standard_metadata.egress_spec = port;
         hdr.ethernet.srcAddr = tmpAddr;
@@ -97,6 +110,20 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
+        port_counter.count((bit<32>)standard_metadata.ingress_port);
+
+        if (hdr.heartbeat.isValid()) {
+
+            if (hdr.heartbeat.from_cp == 1) {
+                send_heartbeat();
+            }
+
+            else {
+                drop();
+            }
+
+        }
+
         if (hdr.ipv4.isValid()){
             switch (ipv4_lpm.apply().action_run){
                 ecmp_group: {
@@ -115,12 +142,7 @@ control MyIngress(inout headers hdr,
 control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
-
-    counter(32, CounterType.packets_and_bytes) port_counter;
-
-    apply {
-        port_counter.count((bit<32>)standard_metadata.egress_port);
-    }
+    apply { }
 }
 
 /*************************************************************************

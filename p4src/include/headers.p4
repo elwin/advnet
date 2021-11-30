@@ -6,6 +6,7 @@
 #include <v1model.p4>
 
 // Define constants
+const bit<16> HEARTBEAT = 0x1234;
 const bit<16> TYPE_IPV4 = 0x800;
 
 typedef bit<48> macAddr_t;
@@ -17,6 +18,12 @@ header ethernet_t {
     macAddr_t dstAddr;
     macAddr_t srcAddr;
     bit<16>   etherType;
+}
+
+header heartbeat_t {
+    bit<9>    port;
+    bit<1>    from_cp;
+    bit<6>    padding;
 }
 
 header ipv4_t {
@@ -64,6 +71,7 @@ struct metadata {
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
+    heartbeat_t                     heartbeat;
     ipv4_t                          ipv4;
     tcp_t                           tcp;
 }
