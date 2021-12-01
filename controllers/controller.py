@@ -10,6 +10,8 @@ import typing
 
 from p4utils.utils.helper import load_topo
 
+from mock_socket import MockSocket
+
 try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 except ModuleNotFoundError:
@@ -18,7 +20,8 @@ except ModuleNotFoundError:
 
 class Controller(object):
 
-    def __init__(self, base_traffic):
+    def __init__(self, base_traffic, mock: bool):
+        self.mock = mock
         self.base_traffic_file = base_traffic
         self.topology = self.load_topology()
         self.controllers: typing.Dict[str, SimpleSwitchThriftAPI] = {}
@@ -61,7 +64,11 @@ class Controller(object):
     def connect_to_sockets(self):
         for p4switch in self.topology.get_p4switches():
             cpu_interface = self.topology.get_cpu_port_intf(p4switch)
-            send_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+
+            if not self.mock:
+                send_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            else:
+                send_socket = MockSocket()
             send_socket.bind((cpu_interface, 0))
 
             self.sockets[p4switch] = send_socket
@@ -220,10 +227,12 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-traffic', help='Path to scenario.base-traffic', type=str, required=False, default='')
     parser.add_argument('--slas', help='Path to scenario.slas', type=str, required=False, default='')
+    parser.add_argument('--mock', action="store_true", default=False,
+                        help="Enable when stuff (p4utils, sockets) should be mocked")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = get_args()
-    controller = Controller(args.base_traffic)
+    controller = Controller(args.base_traffic, args.mock)
     controller.main()
