@@ -1,2 +1,3 @@
 # Add any needed requirement for your controllers
 numpy==1.19.5
+dataclasses==0.8

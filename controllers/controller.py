@@ -4,18 +4,20 @@ import itertools
 import operator
 import socket
 import struct
-import threading
 import time
 import typing
 
 from p4utils.utils.helper import load_topo
 
 from mock_socket import MockSocket
+from smart_switch import SmartSwitch
 
 try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 except ModuleNotFoundError:
     from mock_simple_switch import SimpleSwitchThriftAPI
+
+INFINITY = 8000000
 
 
 class Controller(object):
@@ -24,24 +26,27 @@ class Controller(object):
         self.mock = mock
         self.base_traffic_file = base_traffic
         self.topology = self.load_topology()
-        self.controllers: typing.Dict[str, SimpleSwitchThriftAPI] = {}
+        self.controllers: typing.Dict[str, SmartSwitch] = {}
         self.sockets: typing.Dict[str, socket.socket] = {}
         self.links: typing.Dict[typing.Tuple[str, str], bool] = {}
         self.last_measurements: typing.Dict[typing.Tuple, typing.List] = {}
-        self.init()
+        self.old_paths = []
+        self.new_paths = []
 
     @staticmethod
     def load_topology():
         topology = load_topo('topology.json')
         for src, dst in itertools.combinations(topology.nodes, 2):
-            if dst not in topology[src] or 'delay' not in topology[src][dst]:
+            if not topology.are_neighbors(src, dst) or topology.isHost(src) or topology.isHost(dst):
                 continue
 
             delay = topology[src][dst]['delay']
             if not delay.endswith('ms'):
                 raise Exception('weird delay format')
+            delay = float(delay[:-2])
 
-            topology[src][dst]['weight'] = float(delay[:-2])
+            topology[src][dst]['weight'] = delay
+            topology[src][dst]['delay'] = delay
 
         return topology
 
@@ -51,7 +56,6 @@ class Controller(object):
         self.connect_to_sockets()
         self.set_links()
         self.reset_states()
-        self.set_table_defaults()
 
     def reset_states(self):
         """Resets switches state"""
@@ -79,12 +83,7 @@ class Controller(object):
         """Connects to switches"""
         for p4switch in self.topology.get_p4switches():
             thrift_port = self.topology.get_thrift_port(p4switch)
-            self.controllers[p4switch] = SimpleSwitchThriftAPI(thrift_port)
-
-    def set_table_defaults(self):
-        for ctrl in self.controllers.values():
-            ctrl.table_set_default("ipv4_lpm", "drop", [])
-            ctrl.table_set_default("ecmp_group_to_nhop", "drop", [])
+            self.controllers[p4switch] = SmartSwitch(SimpleSwitchThriftAPI(thrift_port), p4switch)
 
     def get_egress_port(self, src, dst):
         interface_info = self.topology.get_node_intfs(fields=['node_neigh', 'port'])
@@ -94,9 +93,28 @@ class Controller(object):
 
         raise Exception(f'no interface found between {src} and {dst}')
 
+    def recompute(self):
+        self.old_paths = self.new_paths
+        self.new_paths = []
+        print('recomputing paths')
+        self.run()
+
+        added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
+        deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
+
+        for path in sorted(list(map(list, added_paths))):
+            print(f'[path] adding {path}')
+
+        for path in sorted(list(map(list, deleted_paths))):
+            print(f'[path] removing {path}')
+
     def run(self):
-        switches = list(self.topology.get_p4switches().keys())
+        switches = self.switches()
         prefix = 32
+
+        for ctrl in self.controllers.values():
+            ctrl.table_set_default("ipv4_lpm", "drop")
+            ctrl.table_set_default("ecmp_group_to_nhop", "drop")
 
         # Add table entries for directly connected hosts
         for switch in switches:
@@ -116,6 +134,8 @@ class Controller(object):
                 ctrl = self.controllers[src_switch]
                 paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
 
+                self.new_paths.extend(paths)
+
                 if len(paths) == 0:
                     raise Exception(f'no paths found between {src_switch} and {dst_switch}')
                 elif len(paths) == 1:
@@ -126,6 +146,7 @@ class Controller(object):
                         egress_port = self.get_egress_port(src_switch, path[1])
 
                         ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [host_mac, str(egress_port)])
+
                 else:
                     for host in self.topology.get_hosts_connected_to(dst_switch):
                         host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
@@ -143,6 +164,10 @@ class Controller(object):
                             [str(ecmp_group), str(i)],
                             [next_hop_mac, str(egress_port)],
                         )
+
+        for switch in switches:
+            ctrl = self.controllers[switch]
+            ctrl.apply()
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)
@@ -195,7 +220,7 @@ class Controller(object):
                     self.send_heartbeat(src_switch, dst_switch)
                     continue
 
-                diff_lg = tuple(map(operator.sub, cur, self.last_measurements[conn][-3]))
+                diff_lg = tuple(map(operator.sub, cur, self.last_measurements[conn][-5]))
                 diff_sm = tuple(map(operator.sub, cur, self.last_measurements[conn][-2]))
 
                 bytes_rate = diff_lg[1] / diff_lg[0] / 1000 / 1000 * 8
@@ -207,18 +232,38 @@ class Controller(object):
                     self.send_heartbeat(src_switch, dst_switch)
 
                 if self.links[(src_switch, dst_switch)] and diff_lg[2] == 0:
-                    print(f'[link] {src_switch} -> {dst_switch} is down')
-                    self.links[(src_switch, dst_switch)] = False
+                    self.set_link_down(src_switch, dst_switch)
+                    self.recompute()
 
-                if not self.links[(src_switch, dst_switch)] and diff_sm[2] > 0:
-                    print(f'[link] {src_switch} -> {dst_switch} is up')
-                    self.links[(src_switch, dst_switch)] = True
+                elif not self.links[(src_switch, dst_switch)] and diff_sm[2] > 0:
+                    self.set_link_up(src_switch, dst_switch)
+                    self.recompute()
+
+    def set_link_down(self, src, dst):
+        self.set_link(src, dst, up=False)
+        self.set_link(dst, src, up=False)
+
+    def set_link_up(self, src, dst):
+        self.set_link(src, dst, up=True)
+        self.set_link(dst, src, up=True)
+
+    def set_link(self, src, dst, up: bool):
+        if up:
+            print(f'[link] {src} -> {dst} is up')
+            self.links[(src, dst)] = True
+            self.topology[src][dst]['weight'] = self.topology[src][dst]['delay']
+
+        else:
+            print(f'[link] {src} -> {dst} is down')
+            self.links[(src, dst)] = False
+            self.topology[src][dst]['weight'] = INFINITY
 
     def main(self):
         """Main function"""
         self.run()
 
-        threading.Thread(target=self.monitor_rates).start()
+        self.monitor_rates()
+        # threading.Thread(target=self.monitor_rates).start()
 
         time.sleep(120)
 
@@ -235,4 +280,5 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
     controller = Controller(args.base_traffic, args.mock)
+    controller.init()
     controller.main()
