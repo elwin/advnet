@@ -1,7 +1,7 @@
 src, dst, sport, dport, protocol, rate, size, duration, start_time
 LON_h0, BAR_h0, 5000, 5000, tcp,, 10MB,, 0
 BAR_h0, LON_h0, 5001, 5001, tcp,, 10MB,, 5
-LON_h0, BAR_h0, 5002, 5002, udp,3Mbps,,, 10
-BAR_h0, LON_h0, 5003, 5003, udp,3Mbps,,, 15
-LON_h0, PAR_h0, 5004, 5004, udp,3Mbps,,, 20
-PAR_h0, BAR_h0, 5005, 5005, udp,3Mbps,,, 25
+LON_h0, BAR_h0, 5002, 5002, udp,3Mbps,,10,10
+BAR_h0, LON_h0, 5003, 5003, udp,3Mbps,,10,15
+LON_h0, PAR_h0, 5004, 5004, udp,3Mbps,,10,20
+PAR_h0, BAR_h0, 5005, 5005, udp,3Mbps,,10,25
