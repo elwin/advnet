@@ -71,8 +71,8 @@ struct metadata {
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
-    heartbeat_t                     heartbeat;
     ipv4_t                          ipv4;
     tcp_t                           tcp;
+    heartbeat_t                     heartbeat;
 }
 
