@@ -8,13 +8,10 @@ parser MyParser(packet_in packet,
                 inout standard_metadata_t standard_metadata) {
 
     state start {
-
         transition parse_ethernet;
-
     }
 
     state parse_ethernet {
-
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType){
             HEARTBEAT: parse_heartbeat;
@@ -31,7 +28,8 @@ parser MyParser(packet_in packet,
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol){
-            6 : parse_tcp;
+            TYPE_TCP: parse_tcp;
+            TYPE_UDP: parse_udp;
             default: accept;
         }
     }
@@ -39,8 +37,12 @@ parser MyParser(packet_in packet,
     state parse_tcp {
         packet.extract(hdr.tcp);
         transition accept;
-    }    
+    }
 
+    state parse_udp {
+        packet.extract(hdr.udp);
+        transition accept;
+    }
 }
 
 /*************************************************************************
@@ -54,8 +56,8 @@ control MyDeparser(packet_out packet, in headers hdr) {
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
 
-        //Only emitted if valid
+        // Only emitted if valid
         packet.emit(hdr.tcp);
-
+        packet.emit(hdr.udp);
     }
 }

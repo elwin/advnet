@@ -260,7 +260,7 @@ class Controller(object):
 
     def main(self):
         """Main function"""
-        self.run()
+        self.recompute()
 
         self.monitor_rates()
         # threading.Thread(target=self.monitor_rates).start()

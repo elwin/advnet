@@ -36,7 +36,7 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    action send_heartbeat(){
+    action send_heartbeat() {
         // we make sure the other switch treats the packet as probe from the other side
         hdr.heartbeat.from_cp = 0;
         standard_metadata.egress_spec = hdr.heartbeat.port;
@@ -113,7 +113,6 @@ control MyIngress(inout headers hdr,
         port_counter.count((bit<32>)standard_metadata.ingress_port);
 
         if (hdr.heartbeat.isValid()) {
-
             if (hdr.heartbeat.from_cp == 1) {
                 send_heartbeat();
             }
@@ -121,10 +120,9 @@ control MyIngress(inout headers hdr,
             else {
                 drop();
             }
-
         }
 
-        if (hdr.ipv4.isValid()){
+        if (hdr.ipv4.isValid()) {
             switch (ipv4_lpm.apply().action_run){
                 ecmp_group: {
                     ecmp_group_to_nhop.apply();
@@ -176,10 +174,10 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 
 //switch architecture
 V1Switch(
-MyParser(),
-MyVerifyChecksum(),
-MyIngress(),
-MyEgress(),
-MyComputeChecksum(),
-MyDeparser()
+    MyParser(),
+    MyVerifyChecksum(),
+    MyIngress(),
+    MyEgress(),
+    MyComputeChecksum(),
+    MyDeparser()
 ) main;

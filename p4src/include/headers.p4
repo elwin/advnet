@@ -5,9 +5,13 @@
 #include <core.p4>
 #include <v1model.p4>
 
-// Define constants
+// Ethernet Types
+const bit<16> TYPE_IPV4 = 0x0800;
 const bit<16> HEARTBEAT = 0x1234;
-const bit<16> TYPE_IPV4 = 0x800;
+
+// IPv4 Types
+const bit<8>  TYPE_TCP  = 6;
+const bit<8>  TYPE_UDP  = 17;
 
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
@@ -42,7 +46,7 @@ header ipv4_t {
     ip4Addr_t dstAddr;
 }
 
-header tcp_t{
+header tcp_t {
     bit<16> srcPort;
     bit<16> dstPort;
     bit<32> seqNo;
@@ -62,6 +66,14 @@ header tcp_t{
     bit<16> urgentPtr;
 }
 
+header udp_t {
+    bit<16> srcPort;
+    bit<16> dstPort;
+    bit<16> length;
+    bit<16> checksum;
+}
+
+
 // Instantiate metadata fields
 struct metadata {
     bit<14> ecmp_hash;
@@ -73,6 +85,7 @@ struct headers {
     ethernet_t                      ethernet;
     ipv4_t                          ipv4;
     tcp_t                           tcp;
+    udp_t                           udp;
     heartbeat_t                     heartbeat;
 }
 
