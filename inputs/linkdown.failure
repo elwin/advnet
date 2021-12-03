@@ -1,0 +1,3 @@
+src_switch, dst_switch, failure_time, duration
+BAR, MAD, 10, 15
+PAR, LON, 20, 15
