@@ -1,0 +1,7 @@
+src_switch,dst_switch,failure_time,duration
+PAR,FRA,41,5
+PAR,LON,41,8
+PAR,AMS,41,5
+MAD,LON,41,5
+LON,FRA,44,4
+LON,AMS,46,3
