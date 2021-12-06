@@ -1,3 +1,4 @@
+import logging
 import typing
 from dataclasses import dataclass
 
@@ -76,7 +77,7 @@ class SmartSwitch:
         #  with new entries with the same table_name and match_keys
         for remove in removes:
             self.api.table_delete_match(remove.table_name, list(remove.match_keys))
-            print(f'[table_mod][{self.name}] removing {remove}')
+            logging.info(f'[table_mod][{self.name}] removing {remove}')
 
         for add in adds:
             self.api.table_add(
@@ -85,7 +86,7 @@ class SmartSwitch:
                 list(add.match_keys),
                 list(add.action_params),
             )
-            print(f'[table_mod][{self.name}] adding {add}')
+            logging.info(f'[table_mod][{self.name}] adding {add}')
 
     def apply_table_set_default(self):
         adds: typing.Set[TableSetDefault] = set(self.new_config.table_set_default) - set(
@@ -98,7 +99,7 @@ class SmartSwitch:
                 add.table_name,
                 add.action_name,
             )
-            print(f'[table_mod][{self.name}] adding {add}')
+            logging.info(f'[table_mod][{self.name}] adding {add}')
 
         for remove in removes:
             raise Exception(f'cannot remove {remove}')

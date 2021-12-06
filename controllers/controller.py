@@ -1,9 +1,11 @@
 import argparse
 import codecs
 import itertools
+import logging
 import operator
 import socket
 import struct
+import sys
 import time
 import typing
 
@@ -16,6 +18,8 @@ try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 except ModuleNotFoundError:
     from mock_simple_switch import SimpleSwitchThriftAPI
+
+
 
 INFINITY = 8000000
 
@@ -77,7 +81,7 @@ class Controller(object):
 
             self.sockets[p4switch] = send_socket
 
-        print(f'connected to all sockets')
+        logging.info(f'connected to all sockets')
 
     def connect_to_switches(self):
         """Connects to switches"""
@@ -96,17 +100,17 @@ class Controller(object):
     def recompute(self):
         self.old_paths = self.new_paths
         self.new_paths = []
-        print('recomputing paths')
+        logging.info('recomputing paths')
         self.run()
 
         added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
         deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
 
         for path in sorted(list(map(list, added_paths))):
-            print(f'[path] adding {path}')
+            logging.info(f'[path] adding {path}')
 
         for path in sorted(list(map(list, deleted_paths))):
-            print(f'[path] removing {path}')
+            logging.info(f'[path] removing {path}')
 
     def run(self):
         switches = self.switches()
@@ -188,7 +192,7 @@ class Controller(object):
 
         self.sockets[src].send(heartbeat)
 
-        print(f'[heartbeat] sent heartbeat {src} -> {dst}')
+        logging.info(f'[heartbeat] sent heartbeat {src} -> {dst}')
 
     def switches(self):
         return list(self.topology.get_p4switches().keys())
@@ -226,7 +230,8 @@ class Controller(object):
                 bytes_rate = diff_lg[1] / diff_lg[0] / 1000 / 1000 * 8
                 packet_rate = diff_lg[2] / diff_lg[0]
 
-                print(f'[bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
+                logging.info(
+                    f'[bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
 
                 if diff_sm[2] == 0:  # no change in packet in the last 0.25s
                     self.send_heartbeat(src_switch, dst_switch)
@@ -249,12 +254,12 @@ class Controller(object):
 
     def set_link(self, src, dst, up: bool):
         if up:
-            print(f'[link] {src} -> {dst} is up')
+            logging.info(f'[link] {src} -> {dst} is up')
             self.links[(src, dst)] = True
             self.topology[src][dst]['weight'] = self.topology[src][dst]['delay']
 
         else:
-            print(f'[link] {src} -> {dst} is down')
+            logging.info(f'[link] {src} -> {dst} is down')
             self.links[(src, dst)] = False
             self.topology[src][dst]['weight'] = INFINITY
 
@@ -278,6 +283,12 @@ def get_args():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.DEBUG,
+        format='[%(relativeCreated)6d] %(levelname)s: %(message)s'
+    )
+
     args = get_args()
     controller = Controller(args.base_traffic, args.mock)
     controller.init()
