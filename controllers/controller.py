@@ -19,8 +19,6 @@ try:
 except ModuleNotFoundError:
     from mock_simple_switch import SimpleSwitchThriftAPI
 
-
-
 INFINITY = 8000000
 
 
