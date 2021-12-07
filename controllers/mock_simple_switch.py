@@ -22,3 +22,7 @@ class SimpleSwitchThriftAPI:
         self.bytes += 100
         self.packets += 1
         return self.bytes, self.packets
+
+    def register_write(self, register_name: str, index, value: int):
+        logging.info(f'[{self.thrift_port}] [register_mod] setting {register_name}[{index}] -> {value}')
+

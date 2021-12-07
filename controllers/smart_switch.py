@@ -88,6 +88,14 @@ class SmartSwitch:
             )
             logging.info(f'[table_mod][{self.name}] adding {add}')
 
+    def register_write(self, register_name: str, index, value: int):
+        self.api.register_write(
+            register_name=register_name,
+            index=index,
+            value=value,
+        )
+        logging.info(f'[register_mod][{self.name}] setting {register_name}[{index}] -> {value}')
+
     def apply_table_set_default(self):
         adds: typing.Set[TableSetDefault] = set(self.new_config.table_set_default) - set(
             self.old_config.table_set_default)
