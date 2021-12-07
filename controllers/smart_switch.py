@@ -28,9 +28,20 @@ class TableSetDefault:
         return f'<table_set_default> {self.table_name} / {self.action_name}'
 
 
+@dataclass(init=True, frozen=True)
+class RegisterSet:
+    register_name: str
+    index: int
+    value: int
+
+    def __str__(self):
+        return f'<table_set_default> {self.register_name}[{self.index}] -> {self.value}'
+
+
 class Configuration:
     table_set_default: typing.List[TableSetDefault]
     table_add: typing.List[TableAdd]
+    register_set: typing.List[RegisterSet]
 
     def __init__(self):
         self.table_set_default = []

@@ -9,6 +9,7 @@ import sys
 import time
 import typing
 
+import networkx as nx
 from p4utils.utils.helper import load_topo
 
 from mock_socket import MockSocket
@@ -131,20 +132,23 @@ class Controller(object):
                 host_port = self.get_egress_port(switch, host)
                 ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(host_port)])
 
+        best_paths: typing.Dict[(str, str), typing.List] = {}
+
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
 
                 ctrl = self.controllers[src_switch]
-                paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
+                possible_alternative_paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
+                best_paths[src_switch, dst_switch] = possible_alternative_paths
 
-                self.new_paths.extend(paths)
+                self.new_paths.extend(possible_alternative_paths)
 
-                if len(paths) == 0:
+                if len(possible_alternative_paths) == 0:
                     raise Exception(f'no paths found between {src_switch} and {dst_switch}')
-                elif len(paths) == 1:
-                    path = paths[0]
+                elif len(possible_alternative_paths) == 1:
+                    path = possible_alternative_paths[0]
                     for host in self.topology.get_hosts_connected_to(dst_switch):
                         host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
                         host_mac = self.topology.get_host_mac(host)
@@ -156,9 +160,9 @@ class Controller(object):
                     for host in self.topology.get_hosts_connected_to(dst_switch):
                         host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
 
-                        ctrl.table_add("ipv4_lpm", "ecmp_group", [host_ip], [str(ecmp_group), str(len(paths))])
+                        ctrl.table_add("ipv4_lpm", "ecmp_group", [host_ip], [str(ecmp_group), str(len(possible_alternative_paths))])
 
-                    for i, path in enumerate(paths):
+                    for i, path in enumerate(possible_alternative_paths):
                         next_hop = path[1]
                         egress_port = self.get_egress_port(src_switch, next_hop)
                         next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
@@ -170,9 +174,45 @@ class Controller(object):
                             [next_hop_mac, str(egress_port)],
                         )
 
+        print('adf')
+        # compute LFAs
+        for src, dst in itertools.permutations(self.switches(), 2):
+            possible_alternative_paths = nx.shortest_simple_paths(self.topology, src, dst)
+
+            for cur_best_path in best_paths[src, dst]:
+                best_neighbor = cur_best_path[1]
+                best_egress = self.get_egress_port(src, best_neighbor)
+
+                for best_path in best_paths[best_neighbor, dst]:
+                    if src in best_path:
+                        continue
+
+                    for alt_path in possible_alternative_paths:
+
+                        # TODO: Only check for sequence [src, best_neighbor] in list
+                        if best_neighbor in alt_path:
+                            continue
+
+                        next_egress = self.get_egress_port(src, alt_path[1])
+                        self.controllers[src].register_write(
+                            register_name='link_lfa',
+                            index=best_egress,
+                            value=next_egress,
+                        )
+
+                        break
+
         for switch in switches:
             ctrl = self.controllers[switch]
             ctrl.apply()
+
+    @staticmethod
+    def contained_in_paths(node, paths: typing.List[typing.List[str]]):
+        for path in paths:
+            if node in path:
+                return True
+
+        return False
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)
