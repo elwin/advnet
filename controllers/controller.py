@@ -266,7 +266,6 @@ class Controller(object):
         self.recompute()
 
         self.monitor_rates()
-        # threading.Thread(target=self.monitor_rates).start()
 
         time.sleep(120)
 
