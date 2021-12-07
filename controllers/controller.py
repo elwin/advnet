@@ -124,9 +124,9 @@ class Controller(object):
 
             for host in self.topology.get_hosts_connected_to(switch):
                 host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
-                host_mac = self.topology.get_host_mac(host)
+                next_hop_mac = self.topology.get_host_mac(host)
                 host_port = self.get_egress_port(switch, host)
-                ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [host_mac, str(host_port)])
+                ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [next_hop_mac, str(host_port)])
 
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
@@ -142,12 +142,14 @@ class Controller(object):
                     raise Exception(f'no paths found between {src_switch} and {dst_switch}')
                 elif len(paths) == 1:
                     path = paths[0]
+                    next_hop = path[1]
+                    next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
+                    next_hop_egress = self.get_egress_port(src_switch, next_hop)
+
                     for host in self.topology.get_hosts_connected_to(dst_switch):
                         host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
-                        host_mac = self.topology.get_host_mac(host)
-                        egress_port = self.get_egress_port(src_switch, path[1])
 
-                        ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [host_mac, str(egress_port)])
+                        ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [next_hop_mac, str(next_hop_egress)])
 
                 else:
                     for host in self.topology.get_hosts_connected_to(dst_switch):
@@ -157,14 +159,14 @@ class Controller(object):
 
                     for i, path in enumerate(paths):
                         next_hop = path[1]
-                        egress_port = self.get_egress_port(src_switch, next_hop)
+                        next_hop_egress = self.get_egress_port(src_switch, next_hop)
                         next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
 
                         ctrl.table_add(
                             "ecmp_group_to_nhop",
                             "set_nhop",
                             [str(ecmp_group), str(i)],
-                            [next_hop_mac, str(egress_port)],
+                            [next_hop_mac, str(next_hop_egress)],
                         )
 
         for switch in switches:
