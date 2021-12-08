@@ -190,13 +190,17 @@ class Controller(object):
                 ctrl.register_write("linkState", port, 0)
             print("Register has been reset.")
 
+        best_paths: typing.Dict[typing.Tuple[str, str], typing.List] = {}
+        for src, dst in itertools.permutations(self.switches(), 2):
+            best_paths[src, dst] = self.topology.get_shortest_paths_between_nodes(src, dst)
+
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
 
                 ctrl = self.controllers[src_switch]
-                paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
+                paths = best_paths[src_switch, dst_switch]
 
                 self.new_paths.extend(paths)
 
@@ -231,9 +235,48 @@ class Controller(object):
                             [next_hop_mac, str(next_hop_egress)],
                         )
 
+        for (src, dst), cur_best_paths in best_paths.items():
+            for best_path in cur_best_paths:
+                best_next_hop = best_path[1]
+                best_next_egress = self.get_egress_port(src, best_next_hop)
+
+                for alt_next_hop in self.topology.neighbors(src):
+                    if not self.topology.isSwitch(alt_next_hop):
+                        continue
+
+                    if alt_next_hop == dst:
+                        continue
+
+                    if alt_next_hop == best_next_hop:
+                        continue
+
+                    if src in best_paths[alt_next_hop, dst]:
+                        continue
+
+                    alt_next_egress = self.get_egress_port(src, alt_next_hop)
+                    alt_next_mac = self.topology.node_to_node_mac(src, alt_next_hop)
+
+                    for host in self.topology.get_hosts_connected_to(dst):
+                        host_ip = self.get_host_ip_with_subnet(host)
+
+                        self.controllers[src].table_add(
+                            table_name='find_lfa',
+                            action_name='set_nhop',
+                            match_keys=[str(best_next_egress), host_ip],
+                            action_params=[str(alt_next_egress), alt_next_mac]
+                        )
+
         for switch in switches:
             ctrl = self.controllers[switch]
             ctrl.apply()
+
+    @staticmethod
+    def node_in_any_path(node, paths: typing.List[typing.List[str]]) -> bool:
+        for path in paths:
+            if node in path:
+                return True
+
+        return False
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)
