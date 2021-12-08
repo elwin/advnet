@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
-except:
+except ModuleNotFoundError:
     pass
 
 
