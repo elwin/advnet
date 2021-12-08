@@ -20,6 +20,7 @@ except ModuleNotFoundError:
     from mock_simple_switch import SimpleSwitchThriftAPI
 
 INFINITY = 8000000
+BUFFER_SIZE = 8
 
 
 class Controller(object):
@@ -35,6 +36,23 @@ class Controller(object):
         self.old_paths = []
         self.new_paths = []
 
+    def compute_weight(self, src: str, dst: str):
+        if not self.links[(src, dst)]:
+            return INFINITY
+
+        edge = self.topology[src][dst]
+        bw_bytes, _ = self.get_bandwidth(src, dst)
+        delay = edge['delay']
+        congestion_ratio = bw_bytes / (10 * 2 ** 10)
+
+        # return delay + 20 * congestion_ratio ** 2
+        return delay  # bandwidth for now, performance becomes worse
+
+    def set_all_weights(self):
+        for src, dst in itertools.permutations(self.switches(), 2):
+            if self.topology.are_neighbors(src, dst):
+                self.topology[src][dst]['weight'] = self.compute_weight(src, dst)
+
     @staticmethod
     def load_topology():
         topology = load_topo('topology.json')
@@ -47,7 +65,6 @@ class Controller(object):
                 raise Exception('weird delay format')
             delay = float(delay[:-2])
 
-            topology[src][dst]['weight'] = delay
             topology[src][dst]['delay'] = delay
 
         return topology
@@ -65,7 +82,11 @@ class Controller(object):
 
     def set_links(self):
         for src, dst in itertools.permutations(self.switches(), 2):
+            if not self.topology.are_neighbors(src, dst):
+                continue
+
             self.links[(src, dst)] = True
+            self.last_measurements[(src, dst)] = [(time.time(), 0, 0)]
 
     def connect_to_sockets(self):
         for p4switch in self.topology.get_p4switches():
@@ -87,6 +108,15 @@ class Controller(object):
             thrift_port = self.topology.get_thrift_port(p4switch)
             self.controllers[p4switch] = SmartSwitch(SimpleSwitchThriftAPI(thrift_port), p4switch)
 
+    def get_host_ip_with_subnet(self, name):
+        if not self.topology.isHost(name):
+            raise TypeError(f'{name} is not a host.')
+        ip = self.topology.get_nodes()[name].get('ip')
+        if ip is None:
+            raise Exception(f'{name} has no valid IP')
+
+        return ip
+
     def get_egress_port(self, src, dst):
         interface_info = self.topology.get_node_intfs(fields=['node_neigh', 'port'])
         for dst_cur, dst_port in interface_info[src].values():
@@ -95,24 +125,39 @@ class Controller(object):
 
         raise Exception(f'no interface found between {src} and {dst}')
 
+    def get_bandwidth(self, src, dst):
+        link_bw = self.last_measurements[(src, dst)]
+
+        if len(link_bw) < 2:
+            logging.info(f'[bandwidth] no bandwidth for {src} -> {dst} yet')
+            return 0, 0
+
+        diff = tuple(map(operator.sub, link_bw[0], link_bw[-1]))
+
+        bytes_rate = diff[1] / diff[0]
+        packet_rate = diff[2] / diff[0]
+
+        return bytes_rate, packet_rate
+
     def recompute(self):
         self.old_paths = self.new_paths
         self.new_paths = []
-        logging.info('recomputing paths')
+        logging.info('[info] recomputing weights')
+        self.set_all_weights()
+        logging.info('[info] recomputing and configuring paths')
         self.run()
 
         added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
         deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
 
         for path in sorted(list(map(list, added_paths))):
-            logging.info(f'[path] adding {path}')
+            logging.info(f'[path] added {path}')
 
         for path in sorted(list(map(list, deleted_paths))):
-            logging.info(f'[path] removing {path}')
+            logging.info(f'[path] removed {path}')
 
     def run(self):
         switches = self.switches()
-        prefix = 32
 
         for ctrl in self.controllers.values():
             ctrl.table_set_default("ipv4_lpm", "drop")
@@ -123,7 +168,7 @@ class Controller(object):
             ctrl = self.controllers[switch]
 
             for host in self.topology.get_hosts_connected_to(switch):
-                host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
+                host_ip = self.get_host_ip_with_subnet(host)
                 next_hop_mac = self.topology.get_host_mac(host)
                 host_port = self.get_egress_port(switch, host)
                 ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [next_hop_mac, str(host_port)])
@@ -147,13 +192,13 @@ class Controller(object):
                     next_hop_egress = self.get_egress_port(src_switch, next_hop)
 
                     for host in self.topology.get_hosts_connected_to(dst_switch):
-                        host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
+                        host_ip = self.get_host_ip_with_subnet(host)
 
                         ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [next_hop_mac, str(next_hop_egress)])
 
                 else:
                     for host in self.topology.get_hosts_connected_to(dst_switch):
-                        host_ip = f'{self.topology.get_host_ip(host)}/{prefix}'
+                        host_ip = self.get_host_ip_with_subnet(host)
 
                         ctrl.table_add("ipv4_lpm", "ecmp_group", [host_ip], [str(ecmp_group), str(len(paths))])
 
@@ -197,52 +242,48 @@ class Controller(object):
     def switches(self):
         return list(self.topology.get_p4switches().keys())
 
-    def monitor_rates(self):
-        buffer_size = 8
-        switches = list(self.topology.get_p4switches().keys())
+    def monitor_rates(self) -> bool:
+        should_recompute = False
 
-        for src_switch, dst_switch in itertools.permutations(switches, 2):
-            if self.topology.are_neighbors(src_switch, dst_switch):
-                self.last_measurements[src_switch, dst_switch] = [(time.time(), 0, 0)]
+        for src_switch, dst_switch in self.last_measurements:
+            conn = src_switch, dst_switch
+            ctrl = self.controllers[dst_switch]
 
-        while not time.sleep(0.25):
-            for src_switch, dst_switch in self.last_measurements:
-                conn = src_switch, dst_switch
-                ctrl = self.controllers[dst_switch]
+            bytes_count, packet_count = ctrl.counter_read(
+                'port_counter',
+                # we're looking at the ingress, thus its reversed
+                self.topology.node_to_node_port_num(dst_switch, src_switch),
+            )
 
-                bytes_count, packet_count = ctrl.counter_read(
-                    'port_counter',
-                    # we're looking at the ingress, thus its reversed
-                    self.topology.node_to_node_port_num(dst_switch, src_switch),
-                )
+            cur = time.time(), bytes_count, packet_count
+            self.last_measurements[conn].append(cur)
+            self.last_measurements[conn] = self.last_measurements[conn][-BUFFER_SIZE:]
+            if len(self.last_measurements[conn]) < BUFFER_SIZE:
+                # only start making decisions once our buffer is filled
+                self.send_heartbeat(src_switch, dst_switch)
+                continue
 
-                cur = time.time(), bytes_count, packet_count
-                self.last_measurements[conn].append(cur)
-                self.last_measurements[conn] = self.last_measurements[conn][-buffer_size:]
-                if len(self.last_measurements[conn]) < buffer_size:
-                    # only start making decisions once our buffer is filled
-                    self.send_heartbeat(src_switch, dst_switch)
-                    continue
+            diff_lg = tuple(map(operator.sub, cur, self.last_measurements[conn][-5]))
+            diff_sm = tuple(map(operator.sub, cur, self.last_measurements[conn][-2]))
 
-                diff_lg = tuple(map(operator.sub, cur, self.last_measurements[conn][-5]))
-                diff_sm = tuple(map(operator.sub, cur, self.last_measurements[conn][-2]))
+            bytes_rate = diff_lg[1] / diff_lg[0] / 1000 / 1000 * 8
+            packet_rate = diff_lg[2] / diff_lg[0]
 
-                bytes_rate = diff_lg[1] / diff_lg[0] / 1000 / 1000 * 8
-                packet_rate = diff_lg[2] / diff_lg[0]
+            logging.info(
+                f'[bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
 
-                logging.info(
-                    f'[bandwidth]: {src_switch} -> {dst_switch}: {round(bytes_rate, 2)} / {round(packet_rate, 2)}')
+            if diff_sm[2] == 0:  # no change in packet in the last 0.25s
+                self.send_heartbeat(src_switch, dst_switch)
 
-                if diff_sm[2] == 0:  # no change in packet in the last 0.25s
-                    self.send_heartbeat(src_switch, dst_switch)
+            if self.links[(src_switch, dst_switch)] and diff_lg[2] == 0:
+                self.set_link_down(src_switch, dst_switch)
+                should_recompute = True
 
-                if self.links[(src_switch, dst_switch)] and diff_lg[2] == 0:
-                    self.set_link_down(src_switch, dst_switch)
-                    self.recompute()
+            elif not self.links[(src_switch, dst_switch)] and diff_sm[2] > 0:
+                self.set_link_up(src_switch, dst_switch)
+                should_recompute = True
 
-                elif not self.links[(src_switch, dst_switch)] and diff_sm[2] > 0:
-                    self.set_link_up(src_switch, dst_switch)
-                    self.recompute()
+        return should_recompute
 
     def set_link_down(self, src, dst):
         self.set_link(src, dst, up=False)
@@ -256,19 +297,24 @@ class Controller(object):
         if up:
             logging.info(f'[link] {src} -> {dst} is up')
             self.links[(src, dst)] = True
-            self.topology[src][dst]['weight'] = self.topology[src][dst]['delay']
 
         else:
             logging.info(f'[link] {src} -> {dst} is down')
             self.links[(src, dst)] = False
-            self.topology[src][dst]['weight'] = INFINITY
 
     def main(self):
         """Main function"""
         self.recompute()
 
-        self.monitor_rates()
-        # threading.Thread(target=self.monitor_rates).start()
+        last_recomputation = time.time()
+        while not time.sleep(0.25):
+            should_recompute = self.monitor_rates()
+            if time.time() - last_recomputation > 5:
+                should_recompute = True
+
+            if should_recompute:
+                last_recomputation = time.time()
+                self.recompute()
 
         time.sleep(120)
 
