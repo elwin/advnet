@@ -54,6 +54,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
 
         //parsed headers have to be added again into the packet.
         packet.emit(hdr.ethernet);
+        packet.emit(hdr.heartbeat);
         packet.emit(hdr.ipv4);
 
         // Only emitted if valid

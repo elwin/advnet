@@ -36,8 +36,8 @@ header heartbeat_t {
 header ipv4_t {
     bit<4>    version;
     bit<4>    ihl;
-    bit<2>    ecn;
     bit<6>    dscp;
+    bit<2>    ecn;
     bit<16>   totalLen;
     bit<16>   identification;
     bit<3>    flags;
@@ -99,9 +99,10 @@ struct metadata {
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
+    heartbeat_t                     heartbeat;
     ipv4_t                          ipv4;
     tcp_t                           tcp;
     udp_t                           udp;
-    heartbeat_t                     heartbeat;
+
 }
 

@@ -48,7 +48,7 @@ control MyIngress(inout headers hdr,
 
     // Register containing link states. 0: No Problems. 1: Link failure.
     register<bit<1>>(N_PORTS) linkState;
-    register<bit<PORT_WIDTH>>(N_PORTS) link_lfa;
+    //register<bit<PORT_WIDTH>>(N_PORTS) link_lfa;
 
     register<bit<ID_WIDTH>>(REGISTER_SIZE)        flowlet_to_id;
     register<bit<TIMESTAMP_WIDTH>>(REGISTER_SIZE) flowlet_time_stamp;
@@ -72,17 +72,6 @@ control MyIngress(inout headers hdr,
         // we make sure the other switch treats the packet as probe from the other side
         hdr.heartbeat.from_cp = 0;
         standard_metadata.egress_spec = hdr.heartbeat.port;
-    }
-
-    action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
-
-        bit<48> tmpAddr;
-        tmpAddr = hdr.ethernet.dstAddr;
-        hdr.ethernet.dstAddr = dstAddr;
-        standard_metadata.egress_spec = port;
-        hdr.ethernet.srcAddr = tmpAddr;
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
     }
 
     action update_flowlet_id(){
@@ -196,6 +185,19 @@ control MyIngress(inout headers hdr,
         default_action = drop;
     }
 
+    table find_lfa {
+        key = {
+            meta.flow_egress: exact;
+            hdr.ipv4.dstAddr: lpm;
+        }
+        actions = {
+            set_nhop;
+            drop;
+        }
+        size = 512;
+        default_action = drop;
+    }
+
     apply {
         port_counter.count((bit<32>)standard_metadata.ingress_port);
 
@@ -221,14 +223,15 @@ control MyIngress(inout headers hdr,
                 // check if inter-packet gap is > 100ms or flow unknown
                 if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || (meta.f_egress_saved == 0)){
                     update_flowlet_id();
-                }
-
-                // DO the load balancing in the controller
-                switch (ipv4_lpm.apply().action_run){
-                    ecmp_group: {
-                        ecmp_group_to_nhop.apply();
+                    // DO the load balancing in the controller
+                    switch (ipv4_lpm.apply().action_run){
+                        ecmp_group: {
+                            ecmp_group_to_nhop.apply();
+                        }
                     }
                 }
+
+
 
             }
 
@@ -245,69 +248,70 @@ control MyIngress(inout headers hdr,
                     standard_metadata.egress_spec = (bit<9>) meta.flow_egress;
                     // Save current egress port for the specific flow
                     known_flows_egress.write((bit<32>)meta.flowlet_register_index, meta.flow_egress);
-                    rewrite_mac.apply();
                 }
 
                 // Link has failed
                 // Find LFA which works
                 else {
+
+                    find_lfa.apply();
+
                     // Read per-link LFA
                     // until an operating link is found
-                    meta.lfa_operating = 0;
+                    // meta.lfa_operating = 0;
 
-                    // 1st alt
-                    link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
-                    meta.flow_egress = meta.lfa_flow_egress;
-                    // check if LFA is operating
-                    linkState.read(meta.linkState, meta.lfa_flow_egress);
-                    // link operating
-                    if (meta.linkState == 0) {
-                        meta.lfa_operating = 1;
-                    }
+                    // // 1st alt
+                    // link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
+                    // meta.flow_egress = meta.lfa_flow_egress;
+                    // // check if LFA is operating
+                    // linkState.read(meta.linkState, meta.lfa_flow_egress);
+                    // // link operating
+                    // if (meta.linkState == 0) {
+                    //     meta.lfa_operating = 1;
+                    // }
 
 
-                    // 1st alt not operating
-                    // 2nd alt
-                    if (meta.lfa_operating == 0) {
-                        link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
-                        meta.flow_egress = meta.lfa_flow_egress;
-                        // check if LFA is operating
-                        linkState.read(meta.linkState, meta.lfa_flow_egress);
-                        // link operating
-                        if (meta.linkState == 0) {
-                            meta.lfa_operating = 1;
-                        }
-                    }
+                    // // 1st alt not operating
+                    // // 2nd alt
+                    // if (meta.lfa_operating == 0) {
+                    //     link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
+                    //     meta.flow_egress = meta.lfa_flow_egress;
+                    //     // check if LFA is operating
+                    //     linkState.read(meta.linkState, meta.lfa_flow_egress);
+                    //     // link operating
+                    //     if (meta.linkState == 0) {
+                    //         meta.lfa_operating = 1;
+                    //     }
+                    // }
 
-                    // 2nd alt not operating
-                    // 3rd alt
-                    if (meta.lfa_operating == 0) {
-                        link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
-                        meta.flow_egress = meta.lfa_flow_egress;
-                        // check if LFA is operating
-                        linkState.read(meta.linkState, meta.lfa_flow_egress);
-                        // link operating
-                        if (meta.linkState == 0) {
-                            meta.lfa_operating = 1;
-                        }
-                    }
+                    // // 2nd alt not operating
+                    // // 3rd alt
+                    // if (meta.lfa_operating == 0) {
+                    //     link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
+                    //     meta.flow_egress = meta.lfa_flow_egress;
+                    //     // check if LFA is operating
+                    //     linkState.read(meta.linkState, meta.lfa_flow_egress);
+                    //     // link operating
+                    //     if (meta.linkState == 0) {
+                    //         meta.lfa_operating = 1;
+                    //     }
+                    // }
 
-                    // 3rd alt not operating
-                    // 4th alt
-                    if (meta.lfa_operating == 0) {
-                        link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
-                        meta.flow_egress = meta.lfa_flow_egress;
-                        // check if LFA is operating
-                        linkState.read(meta.linkState, meta.lfa_flow_egress);
-                        // link operating
-                        if (meta.linkState == 0) {
-                            meta.lfa_operating = 1;
-                        }
-                    }
+                    // // 3rd alt not operating
+                    // // 4th alt
+                    // if (meta.lfa_operating == 0) {
+                    //     link_lfa.read(meta.lfa_flow_egress, meta.flow_egress);
+                    //     meta.flow_egress = meta.lfa_flow_egress;
+                    //     // check if LFA is operating
+                    //     linkState.read(meta.linkState, meta.lfa_flow_egress);
+                    //     // link operating
+                    //     if (meta.linkState == 0) {
+                    //         meta.lfa_operating = 1;
+                    //     }
+                    // }
                     standard_metadata.egress_spec = (bit<9>) meta.flow_egress;
                     // Save current egress port for the specific flow
                     known_flows_egress.write((bit<32>)meta.flowlet_register_index, meta.flow_egress);
-                    rewrite_mac.apply();
 
                 }
 
