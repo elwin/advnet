@@ -319,6 +319,13 @@ class Controller(object):
             logging.info(f'[link] {src} -> {dst} is down')
             self.links[(src, dst)] = False
 
+        egress_port = self.topology.node_to_node_port_num(src, dst)
+        self.controllers[src].register_write(
+            register_name='linkState',
+            index=egress_port,
+            value=0 if up else 1,
+        )
+
     def main(self):
         """Main function"""
         self.recompute()
