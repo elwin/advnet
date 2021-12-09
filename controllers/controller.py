@@ -368,10 +368,13 @@ class Controller(object):
         """Main function"""
         switches = self.switches()
 
-        #     for index in range(500):
-        #         ctrl.register_write("known_flows_egress", index, 0)
-        #         ctrl.register_write("flowlet_time_stamp", index, 0)
-        #     print("Register for ports has been reset.")
+        for src in switches:
+            ctrl = self.controllers[src]
+
+            for index in range(1024):
+                ctrl.register_write("known_flows_egress", index, 0)
+                ctrl.register_write("flowlet_time_stamp", index, 0)
+            print("Register for ports has been reset.")
         self.recompute()
 
         last_recomputation = time.time()

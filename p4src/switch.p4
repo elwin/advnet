@@ -100,7 +100,7 @@ control MyIngress(inout headers hdr,
           hdr.tcp.srcPort,
           hdr.tcp.dstPort,
           hdr.ipv4.protocol},
-	    (bit<14>)500);
+	    (bit<14>)1024);
 
         known_flows_egress.read(meta.f_egress_saved, (bit<32>)meta.flowlet_register_index);
 
