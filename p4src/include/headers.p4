@@ -13,6 +13,9 @@ const bit<16> HEARTBEAT = 0x1234;
 const bit<8>  TYPE_TCP  = 6;
 const bit<8>  TYPE_UDP  = 17;
 
+// Define constants
+#define PORT_WIDTH 32
+
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
 typedef bit<9> egressSpec_t;
@@ -78,14 +81,28 @@ header udp_t {
 struct metadata {
     bit<14> ecmp_hash;
     bit<14> ecmp_group_id;
+    bit<32> current_queue_depth;
+    bit<48> flowlet_last_stamp;
+    bit<48> flowlet_time_diff;
+    bit<13> flowlet_register_index;
+    bit<16> flowlet_id;
+
+    bit<PORT_WIDTH> flow_egress;
+    bit<PORT_WIDTH> f_egress_saved;
+    bit<1>  flow_known;
+    bit<1>  linkState;
+    bit<PORT_WIDTH> lfa_flow_egress;
+    bit<1>  lfa_operating;
+
 }
 
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
+    heartbeat_t                     heartbeat;
     ipv4_t                          ipv4;
     tcp_t                           tcp;
     udp_t                           udp;
-    heartbeat_t                     heartbeat;
+
 }
 

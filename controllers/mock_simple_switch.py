@@ -8,6 +8,11 @@ class SimpleSwitchThriftAPI:
         self.bytes = 0
         pass
 
+    def table_delete_match(self, table_name, match_keys):
+        logging.info(f'[{self.thrift_port}] <table del> {table_name} {match_keys}')
+        pass
+
+
     def table_set_default(self, table_name, action_name, action_params=[]):
         logging.info(f'[{self.thrift_port}] <table_set_default> {table_name} - {action_name} - {action_params}')
 
@@ -22,3 +27,7 @@ class SimpleSwitchThriftAPI:
         self.bytes += 100
         self.packets += 1
         return self.bytes, self.packets
+
+    def register_write(self, register_name: str, index, value: int):
+        logging.info(f'[{self.thrift_port}] [register_mod] setting {register_name}[{index}] -> {value}')
+

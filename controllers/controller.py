@@ -56,8 +56,8 @@ class Controller(object):
         delay = edge['delay']
         congestion_ratio = bw_bytes / (10 * 2 ** 10)
 
-        # return delay + 20 * congestion_ratio ** 2
-        return delay  # bandwidth for now, performance becomes worse
+        return delay + 20 * congestion_ratio ** 2
+        # return delay  # bandwidth for now, performance becomes worse
 
     def set_all_weights(self):
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -97,8 +97,8 @@ class Controller(object):
         self.load_slas()
         self.connect_to_switches()
         self.connect_to_sockets()
-        self.set_links()
         self.reset_states()
+        self.set_links()
 
     def reset_states(self):
         """Resets switches state"""
@@ -111,6 +111,18 @@ class Controller(object):
 
             self.links[(src, dst)] = True
             self.last_measurements[(src, dst)] = [(time.time(), 0, 0)]
+
+    def install_macs(self):
+        for switch, control in self.controllers.items():
+            for neighbor in self.topology.get_neighbors(switch):
+                mac = self.topology.node_to_node_mac(neighbor, switch)
+                port = self.topology.node_to_node_port_num(switch, neighbor)
+                control.table_add(
+                    table_name='rewrite_mac',
+                    action_name='rewriteMac',
+                    match_keys=[str(port)],
+                    action_params=[str(mac)],
+                )
 
     def connect_to_sockets(self):
         for p4switch in self.topology.get_p4switches():
@@ -169,7 +181,9 @@ class Controller(object):
         logging.info('[info] recomputing weights')
         self.set_all_weights()
         logging.info('[info] recomputing and configuring paths')
+        start = time.time()
         self.run()
+        logging.info(f'[info] run completed in {time.time() - start}s')
 
         added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
         deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
@@ -182,7 +196,7 @@ class Controller(object):
 
     def run(self):
         switches = self.switches()
-
+        self.install_macs()
         for ctrl in self.controllers.values():
             ctrl.table_set_default("ipv4_lpm", "drop")
             ctrl.table_set_default("ecmp_group_to_nhop", "drop")
@@ -197,27 +211,41 @@ class Controller(object):
                 host_port = self.get_egress_port(switch, host)
                 ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [next_hop_mac, str(host_port)])
 
+        best_paths: typing.Dict[typing.Tuple[str, str], typing.List] = {}
+        for src, dst in itertools.permutations(self.switches(), 2):
+            best_paths[src, dst] = self.topology.get_shortest_paths_between_nodes(src, dst)
+
+        for src, dst in itertools.permutations(self.switches(), 2):
+            wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
+            if len(wp_constraints) == 1:
+                via = wp_constraints[0].via
+                first_paths = best_paths[src, via]
+                second_paths = best_paths[via, dst]
+                paths = [
+                    [*first_path, *second_path[1:]]
+                    for first_path in first_paths
+                    for second_path in second_paths
+                ]
+
+                best_paths[src, dst] = []
+                for path in paths:
+                    if len(path) != len(set(path)):
+                        logging.info(f'[warn] found cyclic paths between {src} -> {via} -> {dst}')
+                        continue
+
+                    best_paths[src, dst].append(path)
+
+            elif len(wp_constraints) > 1:
+                raise Exception('too many waypoints found!')
+
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
 
                 ctrl = self.controllers[src_switch]
-                wp_constraints = list(filter(lambda c: c.src == src_switch and c.dst == dst_switch, self.waypoints))
-                if len(wp_constraints) == 0:
-                    paths = self.topology.get_shortest_paths_between_nodes(src_switch, dst_switch)
-                elif len(wp_constraints) == 1:
-                    via = wp_constraints[0].via
-                    first_paths = self.topology.get_shortest_paths_between_nodes(src_switch, via)
-                    second_paths = self.topology.get_shortest_paths_between_nodes(via, dst_switch)
-                    paths = [
-                        [*first, *second[1:]]
-                        for first in first_paths
-                        for second in second_paths
-                    ]
-                else:
-                    raise Exception("too many waypoint constraints!")
 
+                paths = best_paths[src_switch, dst_switch]
                 self.new_paths.extend(paths)
 
                 if len(paths) == 0:
@@ -250,6 +278,39 @@ class Controller(object):
                             [str(ecmp_group), str(i)],
                             [next_hop_mac, str(next_hop_egress)],
                         )
+
+        for (src, dst), cur_best_paths in best_paths.items():
+            for best_path in cur_best_paths:
+                best_next_hop = best_path[1]
+                best_next_egress = self.get_egress_port(src, best_next_hop)
+
+                for alt_next_hop in self.topology.neighbors(src):
+                    if not self.topology.isSwitch(alt_next_hop):
+                        continue
+
+                    if alt_next_hop == dst:
+                        continue
+
+                    if alt_next_hop == best_next_hop:
+                        continue
+
+                    if src in best_paths[alt_next_hop, dst]:
+                        continue
+
+                    alt_next_egress = self.get_egress_port(src, alt_next_hop)
+                    alt_next_mac = self.topology.node_to_node_mac(src, alt_next_hop)
+
+                    for host in self.topology.get_hosts_connected_to(dst):
+                        host_ip = self.get_host_ip_with_subnet(host)
+
+                        self.controllers[src].table_add(
+                            table_name='find_lfa',
+                            action_name='set_nhop',
+                            match_keys=[str(best_next_egress), host_ip],
+                            action_params=[alt_next_mac, str(alt_next_egress)]
+                        )
+
+                    break
 
         for switch in switches:
             ctrl = self.controllers[switch]
@@ -339,8 +400,24 @@ class Controller(object):
             logging.info(f'[link] {src} -> {dst} is down')
             self.links[(src, dst)] = False
 
+        egress_port = self.topology.node_to_node_port_num(src, dst)
+        self.controllers[src].register_write(
+            register_name='linkState',
+            index=egress_port,
+            value=0 if up else 1,
+        )
+
     def main(self):
         """Main function"""
+        switches = self.switches()
+
+        for src in switches:
+            ctrl = self.controllers[src]
+
+            for index in range(1024):
+                ctrl.register_write("known_flows_egress", index, 0)
+                ctrl.register_write("flowlet_time_stamp", index, 0)
+            print("Register for ports has been reset.")
         self.recompute()
 
         last_recomputation = time.time()
