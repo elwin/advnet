@@ -1,5 +1,7 @@
 import argparse
 import codecs
+import csv
+import dataclasses
 import itertools
 import logging
 import operator
@@ -23,11 +25,19 @@ INFINITY = 8000000
 BUFFER_SIZE = 8
 
 
+@dataclasses.dataclass(frozen=True)
+class Waypoint:
+    src: str
+    dst: str
+    via: str
+
+
 class Controller(object):
 
-    def __init__(self, base_traffic, mock: bool):
+    def __init__(self, base_traffic: str, mock: bool, slas_path: str):
         self.mock = mock
         self.base_traffic_file = base_traffic
+        self.slas_path = slas_path
         self.topology = self.load_topology()
         self.controllers: typing.Dict[str, SmartSwitch] = {}
         self.sockets: typing.Dict[str, socket.socket] = {}
@@ -35,6 +45,7 @@ class Controller(object):
         self.last_measurements: typing.Dict[typing.Tuple, typing.List] = {}
         self.old_paths = []
         self.new_paths = []
+        self.waypoints: typing.List[Waypoint] = []
 
     def compute_weight(self, src: str, dst: str):
         if not self.links[(src, dst)]:
@@ -69,8 +80,21 @@ class Controller(object):
 
         return topology
 
+    def load_slas(self):
+        with open(self.slas_path) as csv_file:
+            for row in csv.reader(csv_file):
+                if not row[0].startswith('wp_'):
+                    continue
+
+                self.waypoints.append(Waypoint(
+                    src=row[1][:3],
+                    dst=row[2][:3],
+                    via=row[7],
+                ))
+
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
+        self.load_slas()
         self.connect_to_switches()
         self.connect_to_sockets()
         self.reset_states()
@@ -85,7 +109,7 @@ class Controller(object):
             if not self.topology.are_neighbors(src, dst):
                 continue
 
-            self.set_link_up(src, dst)
+            self.links[(src, dst)] = True
             self.last_measurements[(src, dst)] = [(time.time(), 0, 0)]
 
     def install_macs(self):
@@ -410,6 +434,10 @@ if __name__ == "__main__":
     )
 
     args = get_args()
-    controller = Controller(args.base_traffic, args.mock)
+    controller = Controller(
+        base_traffic=args.base_traffic,
+        mock=args.mock,
+        slas_path=args.slas,
+    )
     controller.init()
     controller.main()
