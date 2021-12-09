@@ -45,7 +45,7 @@ class Controller(object):
         delay = edge['delay']
         congestion_ratio = bw_bytes / (10 * 2 ** 10)
 
-        return delay + 20 * congestion_ratio ** 2
+        return delay + 20 * congestion_ratio ** 2 + 1
         # return delay  # bandwidth for now, performance becomes worse
 
     def set_all_weights(self):
@@ -383,7 +383,7 @@ class Controller(object):
         last_recomputation = time.time()
         while not time.sleep(0.25):
             should_recompute = self.monitor_rates()
-            if time.time() - last_recomputation > 5:
+            if time.time() - last_recomputation > 1:
                 should_recompute = True
 
             if should_recompute:

@@ -1,4 +1,10 @@
 src, dst, sport, dport, protocol, rate, size, duration, start_time
-BAR_h0, MAD_h0, 5000, 5001, tcp,, 10MB,, 1
-BAR_h0, MAN_h0, 5001, 5001, tcp,, 10MB,, 1
-BAR_h0, LIS_h0, 5002, 5001, tcp,, 10MB,, 1
+#MAD_h0,BAR_h0,215,235,udp,10Mbps,,10,29
+AMS_h0,PAR_h0,1,13,tcp,, 10MB,,1
+PAR_h0,MAD_h0,2,14,tcp,, 10MB,,3
+LON_h0,BAR_h0,3,15,udp,10Mbps,,10,1
+AMS_h0,MAD_h0,4,16,tcp,, 10MB,,5
+#AMS_h0,PAR_h0,5,17,tcp,, 10MB,,20
+#PAR_h0,MAD_h0,6,18,tcp,, 10MB,,20
+
+
