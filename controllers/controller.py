@@ -45,8 +45,8 @@ class Controller(object):
         delay = edge['delay']
         congestion_ratio = bw_bytes / (10 * 2 ** 10)
 
-        # return delay + 20 * congestion_ratio ** 2
-        return delay  # bandwidth for now, performance becomes worse
+        return delay + 20 * congestion_ratio ** 2
+        # return delay  # bandwidth for now, performance becomes worse
 
     def set_all_weights(self):
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -158,6 +158,7 @@ class Controller(object):
         self.set_all_weights()
         logging.info('[info] recomputing and configuring paths')
         self.run()
+        logging.info('[info] run completed')
 
         added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
         deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
@@ -258,8 +259,10 @@ class Controller(object):
                             table_name='find_lfa',
                             action_name='set_nhop',
                             match_keys=[str(best_next_egress), host_ip],
-                            action_params=[str(alt_next_egress), alt_next_mac]
+                            action_params=[alt_next_mac, str(alt_next_egress)]
                         )
+
+                    break
 
         for switch in switches:
             ctrl = self.controllers[switch]

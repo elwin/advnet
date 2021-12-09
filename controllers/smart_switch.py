@@ -87,25 +87,26 @@ class SmartSwitch:
         # TODO likely won't have to remove entries that are replaced
         #  with new entries with the same table_name and match_keys
         for remove in removes:
-            self.api.table_delete_match(remove.table_name, list(remove.match_keys))
             logging.info(f'[table_mod][{self.name}] removing {remove}')
+            self.api.table_dump(remove.table_name)
+            self.api.table_delete_match(remove.table_name, list(remove.match_keys))
 
         for add in adds:
+            logging.info(f'[table_mod][{self.name}] adding {add}')
             self.api.table_add(
                 add.table_name,
                 add.action_name,
                 list(add.match_keys),
                 list(add.action_params),
             )
-            logging.info(f'[table_mod][{self.name}] adding {add}')
 
     def register_write(self, register_name: str, index, value: int):
+        logging.info(f'[register_mod][{self.name}] setting {register_name}[{index}] -> {value}')
         self.api.register_write(
             register_name=register_name,
             index=index,
             value=value,
         )
-        logging.info(f'[register_mod][{self.name}] setting {register_name}[{index}] -> {value}')
 
     def apply_table_set_default(self):
         adds: typing.Set[TableSetDefault] = set(self.new_config.table_set_default) - set(
@@ -114,11 +115,11 @@ class SmartSwitch:
             self.new_config.table_set_default)
 
         for add in adds:
+            logging.info(f'[table_mod][{self.name}] adding {add}')
             self.api.table_set_default(
                 add.table_name,
                 add.action_name,
             )
-            logging.info(f'[table_mod][{self.name}] adding {add}')
 
         for remove in removes:
             raise Exception(f'cannot remove {remove}')
