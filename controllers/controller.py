@@ -1,5 +1,7 @@
 import argparse
 import codecs
+import csv
+import dataclasses
 import itertools
 import logging
 import operator
@@ -23,11 +25,19 @@ INFINITY = 8000000
 BUFFER_SIZE = 8
 
 
+@dataclasses.dataclass(frozen=True)
+class Waypoint:
+    src: str
+    dst: str
+    via: str
+
+
 class Controller(object):
 
-    def __init__(self, base_traffic, mock: bool):
+    def __init__(self, base_traffic: str, mock: bool, slas_path: str):
         self.mock = mock
         self.base_traffic_file = base_traffic
+        self.slas_path = slas_path
         self.topology = self.load_topology()
         self.controllers: typing.Dict[str, SmartSwitch] = {}
         self.sockets: typing.Dict[str, socket.socket] = {}
@@ -35,6 +45,7 @@ class Controller(object):
         self.last_measurements: typing.Dict[typing.Tuple, typing.List] = {}
         self.old_paths = []
         self.new_paths = []
+        self.waypoints: typing.List[Waypoint] = []
 
     def compute_weight(self, src: str, dst: str):
         if not self.links[(src, dst)]:
@@ -69,8 +80,21 @@ class Controller(object):
 
         return topology
 
+    def load_slas(self):
+        with open(self.slas_path) as csv_file:
+            for row in csv.reader(csv_file):
+                if not row[0].startswith('wp_'):
+                    continue
+
+                self.waypoints.append(Waypoint(
+                    src=row[1][:3],
+                    dst=row[2][:3],
+                    via=row[7],
+                ))
+
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
+        self.load_slas()
         self.connect_to_switches()
         self.connect_to_sockets()
         self.reset_states()
@@ -85,7 +109,7 @@ class Controller(object):
             if not self.topology.are_neighbors(src, dst):
                 continue
 
-            self.set_link_up(src, dst)
+            self.links[(src, dst)] = True
             self.last_measurements[(src, dst)] = [(time.time(), 0, 0)]
 
     def install_macs(self):
@@ -157,8 +181,9 @@ class Controller(object):
         logging.info('[info] recomputing weights')
         self.set_all_weights()
         logging.info('[info] recomputing and configuring paths')
+        start = time.time()
         self.run()
-        logging.info('[info] run completed')
+        logging.info(f'[info] run completed in {time.time() - start}s')
 
         added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
         deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
@@ -190,14 +215,37 @@ class Controller(object):
         for src, dst in itertools.permutations(self.switches(), 2):
             best_paths[src, dst] = self.topology.get_shortest_paths_between_nodes(src, dst)
 
+        for src, dst in itertools.permutations(self.switches(), 2):
+            wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
+            if len(wp_constraints) == 1:
+                via = wp_constraints[0].via
+                first_paths = best_paths[src, via]
+                second_paths = best_paths[via, dst]
+                paths = [
+                    [*first_path, *second_path[1:]]
+                    for first_path in first_paths
+                    for second_path in second_paths
+                ]
+
+                best_paths[src, dst] = []
+                for path in paths:
+                    if len(path) != len(set(path)):
+                        logging.info(f'[warn] found cyclic paths between {src} -> {via} -> {dst}')
+                        continue
+
+                    best_paths[src, dst].append(path)
+
+            elif len(wp_constraints) > 1:
+                raise Exception('too many waypoints found!')
+
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
 
                 ctrl = self.controllers[src_switch]
-                paths = best_paths[src_switch, dst_switch]
 
+                paths = best_paths[src_switch, dst_switch]
                 self.new_paths.extend(paths)
 
                 if len(paths) == 0:
@@ -267,14 +315,6 @@ class Controller(object):
         for switch in switches:
             ctrl = self.controllers[switch]
             ctrl.apply()
-
-    @staticmethod
-    def node_in_any_path(node, paths: typing.List[typing.List[str]]) -> bool:
-        for path in paths:
-            if node in path:
-                return True
-
-        return False
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)
@@ -410,6 +450,10 @@ if __name__ == "__main__":
     )
 
     args = get_args()
-    controller = Controller(args.base_traffic, args.mock)
+    controller = Controller(
+        base_traffic=args.base_traffic,
+        mock=args.mock,
+        slas_path=args.slas,
+    )
     controller.init()
     controller.main()

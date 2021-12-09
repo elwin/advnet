@@ -88,7 +88,6 @@ class SmartSwitch:
         #  with new entries with the same table_name and match_keys
         for remove in removes:
             logging.info(f'[table_mod][{self.name}] removing {remove}')
-            self.api.table_dump(remove.table_name)
             self.api.table_delete_match(remove.table_name, list(remove.match_keys))
 
         for add in adds:
