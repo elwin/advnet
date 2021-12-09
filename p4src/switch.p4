@@ -100,7 +100,7 @@ control MyIngress(inout headers hdr,
           hdr.tcp.srcPort,
           hdr.tcp.dstPort,
           hdr.ipv4.protocol},
-	    (bit<14>)8192);
+	    (bit<14>)500);
 
         known_flows_egress.read(meta.f_egress_saved, (bit<32>)meta.flowlet_register_index);
 
@@ -221,7 +221,7 @@ control MyIngress(inout headers hdr,
                 meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
 
                 // check if inter-packet gap is > 100ms or flow unknown
-                if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || (meta.f_egress_saved == 0)){
+                if ((meta.f_egress_saved == 0) || ((meta.flowlet_time_diff > FLOWLET_TIMEOUT) && (meta.f_egress_saved != 0))){
                     update_flowlet_id();
                     // DO the load balancing in the controller
                     switch (ipv4_lpm.apply().action_run){

@@ -75,7 +75,6 @@ class Controller(object):
         self.connect_to_sockets()
         self.reset_states()
         self.set_links()
-        self.install_macs()
 
     def reset_states(self):
         """Resets switches state"""
@@ -171,7 +170,7 @@ class Controller(object):
 
     def run(self):
         switches = self.switches()
-
+        self.install_macs()
         for ctrl in self.controllers.values():
             ctrl.table_set_default("ipv4_lpm", "drop")
             ctrl.table_set_default("ecmp_group_to_nhop", "drop")
@@ -185,10 +184,6 @@ class Controller(object):
                 next_hop_mac = self.topology.get_host_mac(host)
                 host_port = self.get_egress_port(switch, host)
                 ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [next_hop_mac, str(host_port)])
-
-            for port in range(32):
-                ctrl.register_write("linkState", port, 0)
-            print("Register has been reset.")
 
         best_paths: typing.Dict[typing.Tuple[str, str], typing.List] = {}
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -371,6 +366,12 @@ class Controller(object):
 
     def main(self):
         """Main function"""
+        switches = self.switches()
+
+        #     for index in range(500):
+        #         ctrl.register_write("known_flows_egress", index, 0)
+        #         ctrl.register_write("flowlet_time_stamp", index, 0)
+        #     print("Register for ports has been reset.")
         self.recompute()
 
         last_recomputation = time.time()
