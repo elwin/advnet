@@ -214,13 +214,37 @@ class Controller(object):
         for src, dst in itertools.permutations(self.switches(), 2):
             best_paths[src, dst] = self.topology.get_shortest_paths_between_nodes(src, dst)
 
+
+
         for src_switch in switches:
             for ecmp_group, dst_switch in enumerate(switches):
                 if src_switch == dst_switch:
                     continue
 
                 ctrl = self.controllers[src_switch]
-                paths = best_paths[src_switch, dst_switch]
+
+                wp_constraints = list(filter(lambda c: c.src == src_switch and c.dst == dst_switch, self.waypoints))
+                if len(wp_constraints) == 0:
+                    paths = best_paths[src_switch, dst_switch]
+                elif len(wp_constraints) == 1:
+                    via = wp_constraints[0].via
+                    first_paths = best_paths[src_switch, via]
+                    second_paths = best_paths[via, dst_switch]
+                    potential_paths = [
+                        [*first_path, *second_path[1:]]
+                        for first_path in first_paths
+                        for second_path in second_paths
+                    ]
+
+                    paths = []
+                    for path in potential_paths:
+                        if len(path) != len(set(path)):
+                            logging.info(f'[warn] found cyclic paths between {src_switch} -> {via} -> {dst_switch}')
+                            continue
+
+                        paths.append(path)
+                else:
+                    raise Exception('too many waypoints found!')
 
                 self.new_paths.extend(paths)
 
