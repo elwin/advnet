@@ -119,21 +119,6 @@ control MyIngress(inout headers hdr,
 
     }
 
-    action set_nhop_ecmp(macAddr_t dstAddr, egressSpec_t port) {
-
-        //set the src mac address as the previous dst, this is not correct right?
-        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
-
-       //set the destination mac address that we got from the match in the table
-        hdr.ethernet.dstAddr = dstAddr;
-
-        //set the output port that we also get from the table
-        meta.flow_egress = (bit<32>)port;
-
-        //decrease ttl by 1
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-    }
-
     action set_nhop(macAddr_t dstAddr, egressSpec_t port, egressSpec_t lfa_port) {
 
         //set the src mac address as the previous dst, this is not correct right?
@@ -185,7 +170,7 @@ control MyIngress(inout headers hdr,
         }
         actions = {
             drop;
-            set_nhop_ecmp;
+            set_nhop;
         }
         size = 1024;
         default_action = drop;
@@ -193,7 +178,8 @@ control MyIngress(inout headers hdr,
 
     table ipv4_lpm {
         key = {
-            hdr.ipv4.dstAddr: lpm;
+            hdr.ipv4.srcAddr: lpm;
+            hdr.ipv4.dstAddr: exact;      
         }
         actions = {
             set_nhop;
@@ -219,7 +205,8 @@ control MyIngress(inout headers hdr,
     table find_lfa {
         key = {
             meta.flow_egress: exact;
-            hdr.ipv4.dstAddr: lpm;
+            hdr.ipv4.srcAddr: lpm;
+            hdr.ipv4.dstAddr: exact;
         }
         actions = {
             set_nhop_lfa;
@@ -259,14 +246,11 @@ control MyIngress(inout headers hdr,
                         ecmp_group: {
                             ecmp_group_to_nhop.apply();
                         }
-                        set_nhop: {
-                            // 70-30 rule - 70% of flows sent on primary path, 30% of flows sent on LFA path
-                            random(seed_ran, (bit<7>)0, (bit<7>)100);
-                            if (seed_ran <= 30) {
-                                meta.flow_egress = meta.lfa_flow_egress;
-                            }
-
-                        }
+                    }
+                    // 70-30 rule - 70% of flows sent on primary path, 30% of flows sent on LFA path
+                    random(seed_ran, (bit<7>)0, (bit<7>)100);
+                    if (seed_ran <= 30) {
+                        meta.flow_egress = meta.lfa_flow_egress;
                     }
 
                 }

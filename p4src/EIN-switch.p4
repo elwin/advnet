@@ -71,7 +71,7 @@ control MyIngress(inout headers hdr,
             drop;
         }
         size = 1024;
-        default_action = set_nhop;
+        default_action = drop;
     }
 
     apply {
