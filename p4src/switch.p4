@@ -57,6 +57,9 @@ control MyIngress(inout headers hdr,
 
     counter(32, CounterType.packets_and_bytes) port_counter;
 
+    // Variables for the 70-30 Masica method
+    bit<7> seed_ran;
+
     // Variables needed for RED
     // bit<7> seed;
     // bit<7> probability;
@@ -116,7 +119,7 @@ control MyIngress(inout headers hdr,
 
     }
 
-    action set_nhop(macAddr_t dstAddr, egressSpec_t port) {
+    action set_nhop_ecmp(macAddr_t dstAddr, egressSpec_t port) {
 
         //set the src mac address as the previous dst, this is not correct right?
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
@@ -129,6 +132,34 @@ control MyIngress(inout headers hdr,
 
         //decrease ttl by 1
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    action set_nhop(macAddr_t dstAddr, egressSpec_t port, egressSpec_t lfa_port) {
+
+        //set the src mac address as the previous dst, this is not correct right?
+        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+
+       //set the destination mac address that we got from the match in the table
+        hdr.ethernet.dstAddr = dstAddr;
+
+        //set the output port that we also get from the table
+        meta.flow_egress = (bit<32>)port;
+
+        //read the lfa output port in advance
+        meta.lfa_flow_egress = (bit<32>)lfa_port;
+
+        //decrease ttl by 1
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    action set_nhop_lfa(macAddr_t dstAddr, egressSpec_t port) {
+
+       //set the destination mac address that we got from the match in the table
+        hdr.ethernet.dstAddr = dstAddr;
+
+        //set the output port that we also get from the table
+        meta.flow_egress = (bit<32>)port;
+
     }
 
     action ecmp_group(bit<14> ecmp_group_id, bit<16> num_nhops){
@@ -154,7 +185,7 @@ control MyIngress(inout headers hdr,
         }
         actions = {
             drop;
-            set_nhop;
+            set_nhop_ecmp;
         }
         size = 1024;
         default_action = drop;
@@ -191,7 +222,7 @@ control MyIngress(inout headers hdr,
             hdr.ipv4.dstAddr: lpm;
         }
         actions = {
-            set_nhop;
+            set_nhop_lfa;
             drop;
         }
         size = 512;
@@ -220,7 +251,7 @@ control MyIngress(inout headers hdr,
 
                 meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
 
-                // check if inter-packet gap is > 100ms or flow unknown
+                // check if inter-packet gap is > FLOWLET_TIMEOUT or flow unknown
                 if ((meta.f_egress_saved == 0) || ((meta.flowlet_time_diff > FLOWLET_TIMEOUT) && (meta.f_egress_saved != 0))){
                     update_flowlet_id();
                     // DO the load balancing in the controller
@@ -228,7 +259,16 @@ control MyIngress(inout headers hdr,
                         ecmp_group: {
                             ecmp_group_to_nhop.apply();
                         }
+                        set_nhop: {
+                            // 70-30 rule - 70% of flows sent on primary path, 30% of flows sent on LFA path
+                            random(seed_ran, (bit<7>)0, (bit<7>)100);
+                            if (seed_ran <= 30) {
+                                meta.flow_egress = meta.lfa_flow_egress;
+                            }
+
+                        }
                     }
+
                 }
 
 
