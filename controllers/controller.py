@@ -32,6 +32,13 @@ class Waypoint:
     via: str
 
 
+def pairwise(iterable):
+    # pairwise('ABCDEFG') --> AB BC CD DE EF FG
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return zip(a, b)
+
+
 class Controller(object):
 
     def __init__(self, base_traffic: str, mock: bool, slas_path: str):
@@ -205,7 +212,7 @@ class Controller(object):
                     table_name='ipv4_lpm',
                     action_name='set_nhop',
                     match_keys=[host_ip],
-                    action_params=[host_mac, str(next_hop_egress), '1']
+                    action_params=[host_mac, str(next_hop_egress), '1', '0x0']
                 )
 
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -218,6 +225,9 @@ class Controller(object):
             next_hop_mac = self.topology.node_to_node_mac(src, next_hop)
             next_hop_egress = self.topology.node_to_node_port_num(src, next_hop)
 
+            egress_list = self.get_egress_list(path)
+            converted = self.convert_to_hex(egress_list)
+
             for host in self.topology.get_hosts_connected_to(dst):
                 host_ip = self.get_host_ip_with_subnet(host)
 
@@ -225,11 +235,27 @@ class Controller(object):
                     table_name='ipv4_lpm',
                     action_name='set_nhop',
                     match_keys=[host_ip],
-                    action_params=[next_hop_mac, str(next_hop_egress), '0']
+                    action_params=[next_hop_mac, str(next_hop_egress), '0', converted]
                 )
 
         for switch in self.switches():
             self.controllers[switch].apply()
+
+    def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
+        egress_list = []
+        for src, dst in pairwise(path):
+            egress_list.append(self.topology.node_to_node_port_num(src, dst))
+
+        return egress_list
+
+    @staticmethod
+    def convert_to_hex(egress_path: typing.List[int]) -> str:
+        out = 0
+        for egress in egress_path:
+            out <<= 4
+            out += egress
+
+        return hex(out)
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)

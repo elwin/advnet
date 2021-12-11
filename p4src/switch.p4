@@ -29,7 +29,7 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    action set_nhop(macAddr_t dstAddr, egressSpec_t port, bit<1> last_hop) {
+    action set_nhop(macAddr_t dstAddr, egressSpec_t port, bit<1> last_hop, bit<32> hops) {
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         standard_metadata.egress_spec = port;
