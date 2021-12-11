@@ -94,11 +94,11 @@ class Controller(object):
 
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
-        self.load_slas()
+        # self.load_slas()
         self.connect_to_switches()
-        self.connect_to_sockets()
+        # self.connect_to_sockets()
         self.reset_states()
-        self.set_links()
+        # self.set_links()
 
     def reset_states(self):
         """Resets switches state"""
@@ -195,126 +195,41 @@ class Controller(object):
             logging.info(f'[path] removed {path}')
 
     def run(self):
-        switches = self.switches()
-        self.install_macs()
-        for ctrl in self.controllers.values():
-            ctrl.table_set_default("ipv4_lpm", "drop")
-            ctrl.table_set_default("ecmp_group_to_nhop", "drop")
-
-        # Add table entries for directly connected hosts
-        for switch in switches:
-            ctrl = self.controllers[switch]
-
-            for host in self.topology.get_hosts_connected_to(switch):
+        for src in self.switches():
+            for host in self.topology.get_hosts_connected_to(src):
                 host_ip = self.get_host_ip_with_subnet(host)
-                next_hop_mac = self.topology.get_host_mac(host)
-                host_port = self.get_egress_port(switch, host)
-                ctrl.table_add("ipv4_lpm", "set_nhop", [str(host_ip)], [next_hop_mac, str(host_port)])
+                host_mac = self.topology.get_host_mac(host)
+                next_hop_egress = self.get_egress_port(src, host)
 
-        best_paths: typing.Dict[typing.Tuple[str, str], typing.List] = {}
+                self.controllers[src].table_add(
+                    table_name='ipv4_lpm',
+                    action_name='set_nhop',
+                    match_keys=[host_ip],
+                    action_params=[host_mac, str(next_hop_egress)]
+                )
+
         for src, dst in itertools.permutations(self.switches(), 2):
-            best_paths[src, dst] = self.topology.get_shortest_paths_between_nodes(src, dst)
+            paths = self.topology.get_shortest_paths_between_nodes(src, dst)
+            if len(paths) == 0:
+                raise Exception(f'no paths found between {src} and {dst}')
 
-        for src, dst in itertools.permutations(self.switches(), 2):
-            wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
-            if len(wp_constraints) == 1:
-                via = wp_constraints[0].via
-                first_paths = best_paths[src, via]
-                second_paths = best_paths[via, dst]
-                paths = [
-                    [*first_path, *second_path[1:]]
-                    for first_path in first_paths
-                    for second_path in second_paths
-                ]
+            path = paths[0]
+            next_hop = path[1]
+            next_hop_mac = self.topology.node_to_node_mac(src, next_hop)
+            next_hop_egress = self.topology.node_to_node_port_num(src, next_hop)
 
-                best_paths[src, dst] = []
-                for path in paths:
-                    if len(path) != len(set(path)):
-                        logging.info(f'[warn] found cyclic paths between {src} -> {via} -> {dst}')
-                        continue
+            for host in self.topology.get_hosts_connected_to(dst):
+                host_ip = self.get_host_ip_with_subnet(host)
 
-                    best_paths[src, dst].append(path)
+                self.controllers[src].table_add(
+                    table_name='ipv4_lpm',
+                    action_name='set_nhop',
+                    match_keys=[host_ip],
+                    action_params=[next_hop_mac, str(next_hop_egress)]
+                )
 
-            elif len(wp_constraints) > 1:
-                raise Exception('too many waypoints found!')
-
-        for src_switch in switches:
-            for ecmp_group, dst_switch in enumerate(switches):
-                if src_switch == dst_switch:
-                    continue
-
-                ctrl = self.controllers[src_switch]
-
-                paths = best_paths[src_switch, dst_switch]
-                self.new_paths.extend(paths)
-
-                if len(paths) == 0:
-                    raise Exception(f'no paths found between {src_switch} and {dst_switch}')
-                elif len(paths) == 1:
-                    path = paths[0]
-                    next_hop = path[1]
-                    next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
-                    next_hop_egress = self.get_egress_port(src_switch, next_hop)
-
-                    for host in self.topology.get_hosts_connected_to(dst_switch):
-                        host_ip = self.get_host_ip_with_subnet(host)
-
-                        ctrl.table_add("ipv4_lpm", "set_nhop", [host_ip], [next_hop_mac, str(next_hop_egress)])
-
-                else:
-                    for host in self.topology.get_hosts_connected_to(dst_switch):
-                        host_ip = self.get_host_ip_with_subnet(host)
-
-                        ctrl.table_add("ipv4_lpm", "ecmp_group", [host_ip], [str(ecmp_group), str(len(paths))])
-
-                    for i, path in enumerate(paths):
-                        next_hop = path[1]
-                        next_hop_egress = self.get_egress_port(src_switch, next_hop)
-                        next_hop_mac = self.topology.node_to_node_mac(src_switch, next_hop)
-
-                        ctrl.table_add(
-                            "ecmp_group_to_nhop",
-                            "set_nhop",
-                            [str(ecmp_group), str(i)],
-                            [next_hop_mac, str(next_hop_egress)],
-                        )
-
-        for (src, dst), cur_best_paths in best_paths.items():
-            for best_path in cur_best_paths:
-                best_next_hop = best_path[1]
-                best_next_egress = self.get_egress_port(src, best_next_hop)
-
-                for alt_next_hop in self.topology.neighbors(src):
-                    if not self.topology.isSwitch(alt_next_hop):
-                        continue
-
-                    if alt_next_hop == dst:
-                        continue
-
-                    if alt_next_hop == best_next_hop:
-                        continue
-
-                    if src in best_paths[alt_next_hop, dst]:
-                        continue
-
-                    alt_next_egress = self.get_egress_port(src, alt_next_hop)
-                    alt_next_mac = self.topology.node_to_node_mac(src, alt_next_hop)
-
-                    for host in self.topology.get_hosts_connected_to(dst):
-                        host_ip = self.get_host_ip_with_subnet(host)
-
-                        self.controllers[src].table_add(
-                            table_name='find_lfa',
-                            action_name='set_nhop',
-                            match_keys=[str(best_next_egress), host_ip],
-                            action_params=[alt_next_mac, str(alt_next_egress)]
-                        )
-
-                    break
-
-        for switch in switches:
-            ctrl = self.controllers[switch]
-            ctrl.apply()
+        for switch in self.switches():
+            self.controllers[switch].apply()
 
     def send_heartbeat(self, src, dst):
         src_mac = self.topology.node_to_node_mac(src, dst)
@@ -408,29 +323,7 @@ class Controller(object):
         )
 
     def main(self):
-        """Main function"""
-        switches = self.switches()
-
-        for src in switches:
-            ctrl = self.controllers[src]
-
-            for index in range(1024):
-                ctrl.register_write("known_flows_egress", index, 0)
-                ctrl.register_write("flowlet_time_stamp", index, 0)
-            print("Register for ports has been reset.")
-        self.recompute()
-
-        last_recomputation = time.time()
-        while not time.sleep(0.25):
-            should_recompute = self.monitor_rates()
-            if time.time() - last_recomputation > 1:
-                should_recompute = True
-
-            if should_recompute:
-                last_recomputation = time.time()
-                self.recompute()
-
-        time.sleep(120)
+        self.run()
 
 
 def get_args():

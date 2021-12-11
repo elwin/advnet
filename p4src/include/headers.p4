@@ -79,20 +79,6 @@ header udp_t {
 
 // Instantiate metadata fields
 struct metadata {
-    bit<14> ecmp_hash;
-    bit<14> ecmp_group_id;
-    bit<32> current_queue_depth;
-    bit<48> flowlet_last_stamp;
-    bit<48> flowlet_time_diff;
-    bit<13> flowlet_register_index;
-    bit<16> flowlet_id;
-
-    bit<PORT_WIDTH> flow_egress;
-    bit<PORT_WIDTH> f_egress_saved;
-    bit<1>  flow_known;
-    bit<1>  linkState;
-    bit<PORT_WIDTH> lfa_flow_egress;
-    bit<1>  lfa_operating;
 
 }
 
@@ -103,6 +89,5 @@ struct headers {
     ipv4_t                          ipv4;
     tcp_t                           tcp;
     udp_t                           udp;
-
 }
 
