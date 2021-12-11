@@ -78,7 +78,7 @@ header udp_t {
 }
 
 header path_t {
-    // int<16> path;
+    bit<32> hops;
     bit<16> etherType;
 }
 
