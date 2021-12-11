@@ -205,7 +205,7 @@ class Controller(object):
                     table_name='ipv4_lpm',
                     action_name='set_nhop',
                     match_keys=[host_ip],
-                    action_params=[host_mac, str(next_hop_egress)]
+                    action_params=[host_mac, str(next_hop_egress), '1']
                 )
 
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -225,7 +225,7 @@ class Controller(object):
                     table_name='ipv4_lpm',
                     action_name='set_nhop',
                     match_keys=[host_ip],
-                    action_params=[next_hop_mac, str(next_hop_egress)]
+                    action_params=[next_hop_mac, str(next_hop_egress), '0']
                 )
 
         for switch in self.switches():
