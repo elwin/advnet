@@ -47,7 +47,7 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = hdr.heartbeat.port;
     }
 
-    action set_nhop(macAddr_t dstAddr, egressSpec_t port) {
+    action set_path(macAddr_t dstAddr, egressSpec_t port) {
 
         //set the src mac address as the previous dst, this is not correct right?
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
@@ -62,16 +62,16 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    table ipv4_lpm {
+    table forwarding_table {
         key = {
             hdr.ipv4.dstAddr: lpm;
         }
         actions = {
-            set_nhop;
+            set_path;
             drop;
         }
         size = 1024;
-        default_action = set_nhop;
+        default_action = set_path;
     }
 
     apply {
@@ -88,7 +88,7 @@ control MyIngress(inout headers hdr,
         }
 
         if (hdr.ipv4.isValid()) {
-            ipv4_lpm.apply();
+            forwarding_table.apply();
         }
 
 

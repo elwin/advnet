@@ -209,8 +209,8 @@ class Controller(object):
                 next_hop_egress = self.get_egress_port(src, host)
 
                 self.controllers[src].table_add(
-                    table_name='ipv4_lpm',
-                    action_name='set_nhop',
+                    table_name='forwarding_table',
+                    action_name='set_path',
                     match_keys=[host_ip],
                     action_params=[host_mac, str(next_hop_egress), '1', '0x0']
                 )
@@ -232,8 +232,8 @@ class Controller(object):
                 host_mac = self.topology.get_host_mac(host)
 
                 self.controllers[src].table_add(
-                    table_name='ipv4_lpm',
-                    action_name='set_nhop',
+                    table_name='forwarding_table',
+                    action_name='set_path',
                     match_keys=[host_ip],
                     action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                 )
