@@ -1,16 +1,12 @@
 import argparse
-import codecs
-import csv
 import dataclasses
 import itertools
 import logging
-import operator
 import socket
-import struct
 import sys
-import time
 import typing
 
+import networkx as nx
 from p4utils.utils.helper import load_topo
 
 from mock_socket import MockSocket
@@ -167,6 +163,7 @@ class Controller(object):
                 return dst_port
 
         raise Exception(f'no interface found between {src} and {dst}')
+
     #
     # def get_bandwidth(self, src, dst):
     #     link_bw = self.last_measurements[(src, dst)]
@@ -216,30 +213,39 @@ class Controller(object):
         #         )
 
         for src, dst in itertools.permutations(self.switches(), 2):
-            paths = self.topology.get_shortest_paths_between_nodes(src, dst)
-            if len(paths) == 0:
-                raise Exception(f'no paths found between {src} and {dst}')
+            paths = self.get_paths_between(src, dst)
 
-            path = paths[0]
+            # Round robin over those paths
+            for idx, path in enumerate((10 * paths)[:10]):
 
-            for host in self.topology.get_hosts_connected_to(dst):
-                complete_path = path + tuple([host])
-                egress_list = list(reversed(self.get_egress_list(complete_path)))
-                egress_list_encoded = self.convert_to_hex(egress_list)
-                egress_list_count = len(egress_list)
+                for host in self.topology.get_hosts_connected_to(dst):
+                    complete_path = path + [host]
+                    egress_list = list(reversed(self.get_egress_list(complete_path)))
+                    egress_list_encoded = self.convert_to_hex(egress_list)
+                    egress_list_count = len(egress_list)
 
-                host_ip = self.get_host_ip_with_subnet(host)
-                host_mac = self.topology.get_host_mac(host)
+                    host_ip = self.get_host_ip_with_subnet(host)
+                    host_mac = self.topology.get_host_mac(host)
 
-                self.controllers[src].table_add(
-                    table_name='forwarding_table',
-                    action_name='set_path',
-                    match_keys=[host_ip],
-                    action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
-                )
+                    self.controllers[src].table_add(
+                        table_name='forwarding_table',
+                        action_name='set_path',
+                        match_keys=[host_ip, str(idx)],
+                        action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
+                    )
 
         for switch in self.switches():
             self.controllers[switch].apply()
+
+    def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
+        if via is None:
+            paths = list(itertools.islice(nx.shortest_simple_paths(self.topology, src, dst), k))
+            if len(paths) == 0:
+                raise Exception(f'no paths found between {src} and {dst}')
+
+            return paths
+
+        raise Exception('via not supported yet')
 
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []

@@ -46,6 +46,7 @@ control MyIngress(inout headers hdr,
     table forwarding_table {
         key = {
             hdr.ipv4.dstAddr: lpm;
+            meta.hash: exact;
         }
         actions = {
             set_path;
@@ -66,6 +67,21 @@ control MyIngress(inout headers hdr,
             hdr.ethernet.etherType = TYPE_PATH;
 
             if (hdr.ipv4.isValid()) {
+                if (hdr.udp.isValid()) {
+                    random(meta.hash, (bit<8>)0, (bit<8>)9);
+                } else if (hdr.tcp.isValid()) {
+                    hash(meta.hash,
+                        HashAlgorithm.crc16,
+                        (bit<1>) 0,
+                        { hdr.ipv4.srcAddr,
+                            hdr.ipv4.dstAddr,
+                            hdr.tcp.srcPort,
+                            hdr.tcp.dstPort,
+                            hdr.ipv4.protocol
+                        }, (bit<8>) 10
+                    );
+                }
+
                 forwarding_table.apply();
             }
         }
