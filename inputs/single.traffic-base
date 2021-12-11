@@ -1,0 +1,3 @@
+src, dst, sport, dport, protocol, rate, size, duration, start_time
+BAR_h0, LON_h0, 60001, 60001, udp, 3Mbps,, 15, 5
+#BAR_h0, LON_h0, 1, 1, tcp,, 45MB,, 5
