@@ -79,13 +79,15 @@ header udp_t {
 
 header path_t {
     bit<32> hops;
+    bit<8>  hop_count;
     bit<16> etherType;
+    bit<8>  padding;
 }
 
 
 // Instantiate metadata fields
 struct metadata {
-    bit<1> last_hop;
+
 }
 
 // Instantiate packet headers

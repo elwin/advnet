@@ -221,14 +221,12 @@ class Controller(object):
                 raise Exception(f'no paths found between {src} and {dst}')
 
             path = paths[0]
-            next_hop = path[1]
-            next_hop_mac = self.topology.node_to_node_mac(src, next_hop)
-            next_hop_egress = self.topology.node_to_node_port_num(src, next_hop)
 
             for host in self.topology.get_hosts_connected_to(dst):
-                host_path = path + tuple([host])
-                egress_list = list(reversed(self.get_egress_list(host_path)))
-                converted = self.convert_to_hex(egress_list)
+                complete_path = path + tuple([host])
+                egress_list = list(reversed(self.get_egress_list(complete_path)))
+                egress_list_encoded = self.convert_to_hex(egress_list)
+                egress_list_count = len(egress_list)
 
                 host_ip = self.get_host_ip_with_subnet(host)
                 host_mac = self.topology.get_host_mac(host)
@@ -237,7 +235,7 @@ class Controller(object):
                     table_name='ipv4_lpm',
                     action_name='set_nhop',
                     match_keys=[host_ip],
-                    action_params=[host_mac, converted]
+                    action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                 )
 
         for switch in self.switches():

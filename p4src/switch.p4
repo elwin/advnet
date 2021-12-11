@@ -29,9 +29,10 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    action set_nhop(macAddr_t dstAddr, bit<32> hops) {
+    action set_nhop(macAddr_t dstAddr, bit<32> hops, int<8> hop_count) {
         hdr.ethernet.dstAddr = dstAddr;
         hdr.path.hops = hops;
+        hdr.path.hop_count = hop_count;
     }
 
     table ipv4_lpm {
@@ -61,8 +62,9 @@ control MyIngress(inout headers hdr,
         hdr.path.hops = (hdr.path.hops >> 4);
         standard_metadata.egress_spec = next_hop;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+        hdr.path.hop_count = hdr.path.hop_count - 1;
 
-        if (hdr.path.hops == 0) {
+        if (hdr.path.hop_count == 0) {
             hdr.ethernet.etherType = hdr.path.etherType;
             hdr.path.setInvalid();
         }
