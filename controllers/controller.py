@@ -119,19 +119,6 @@ class Controller(object):
             self.set_link_up(src, dst)
             self.last_measurements[(src, dst)] = [(time.time(), 0, 0)]
 
-    #
-    # def install_macs(self):
-    #     for switch, control in self.controllers.items():
-    #         for neighbor in self.topology.get_neighbors(switch):
-    #             mac = self.topology.node_to_node_mac(neighbor, switch)
-    #             port = self.topology.node_to_node_port_num(switch, neighbor)
-    #             control.table_add(
-    #                 table_name='rewrite_mac',
-    #                 action_name='rewriteMac',
-    #                 match_keys=[str(port)],
-    #                 action_params=[str(mac)],
-    #             )
-
     def connect_to_sockets(self):
         for p4switch in self.topology.get_p4switches():
             cpu_interface = self.topology.get_cpu_port_intf(p4switch)
@@ -166,7 +153,6 @@ class Controller(object):
 
         raise Exception(f'no interface found between {src} and {dst}')
 
-    #
     # def get_bandwidth(self, src, dst):
     #     link_bw = self.last_measurements[(src, dst)]
     #
@@ -180,25 +166,6 @@ class Controller(object):
     #     packet_rate = diff[2] / diff[0]
     #
     #     return bytes_rate, packet_rate
-    #
-    # def recompute(self):
-    #     self.old_paths = self.new_paths
-    #     self.new_paths = []
-    #     logging.info('[info] recomputing weights')
-    #     self.set_all_weights()
-    #     logging.info('[info] recomputing and configuring paths')
-    #     start = time.time()
-    #     self.run()
-    #     logging.info(f'[info] run completed in {time.time() - start}s')
-    #
-    #     added_paths = set(map(tuple, self.new_paths)) - set(map(tuple, self.old_paths))
-    #     deleted_paths = set(map(tuple, self.old_paths)) - set(map(tuple, self.new_paths))
-    #
-    #     for path in sorted(list(map(list, added_paths))):
-    #         logging.info(f'[path] added {path}')
-    #
-    #     for path in sorted(list(map(list, deleted_paths))):
-    #         logging.info(f'[path] removed {path}')
 
     def recompute_paths(self):
         for src, dst in itertools.permutations(self.switches(), 2):
