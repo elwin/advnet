@@ -1,4 +1,5 @@
 import argparse
+import enum
 import itertools
 import logging
 import socket
@@ -20,6 +21,11 @@ except ModuleNotFoundError:
 INFINITY = 8000000
 BUFFER_SIZE = 8
 MAX_PATH_LENGTH = 8
+
+
+class Classification(enum.Enum):
+    TCP = 1
+    UDP = 2
 
 
 def pairwise(iterable):
@@ -207,36 +213,40 @@ class Controller(object):
         #         )
 
         for src, dst in itertools.permutations(self.switches(), 2):
+            paths = self.get_paths_between(src, dst)
+            self.register_paths(src, dst, paths, Classification.TCP)
+
             wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
-            if len(wp_constraints) == 0:
-                paths = self.get_paths_between(src, dst)
-            elif len(wp_constraints) == 1:
+            if len(wp_constraints) == 1:
                 wp_constraint = wp_constraints[0]
                 paths = self.get_paths_between(src, dst, via=wp_constraint.via)
-            else:
+            elif len(wp_constraints) > 1:
                 raise Exception('too many waypoint constraints found')
 
-            # Round robin over those paths
-            for idx, path in enumerate((10 * paths)[:10]):
-
-                for host in self.topology.get_hosts_connected_to(dst):
-                    complete_path = path + [host]
-                    egress_list = list(reversed(self.get_egress_list(complete_path)))
-                    egress_list_encoded = self.convert_to_hex(egress_list)
-                    egress_list_count = len(egress_list)
-
-                    host_ip = self.get_host_ip_with_subnet(host)
-                    host_mac = self.topology.get_host_mac(host)
-
-                    self.controllers[src].table_add(
-                        table_name='forwarding_table',
-                        action_name='set_path',
-                        match_keys=[host_ip, str(idx)],
-                        action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
-                    )
+            self.register_paths(src, dst, paths, Classification.UDP)
 
         for src in self.switches():
             self.controllers[src].apply()
+
+    def register_paths(self, src: str, dst: str, paths: typing.List[typing.List], classification: Classification):
+        # Round robin over those paths
+        for idx, path in enumerate((10 * paths)[:10]):
+
+            for host in self.topology.get_hosts_connected_to(dst):
+                complete_path = path + [host]
+                egress_list = list(reversed(self.get_egress_list(complete_path)))
+                egress_list_encoded = self.convert_to_hex(egress_list)
+                egress_list_count = len(egress_list)
+
+                host_ip = self.get_host_ip_with_subnet(host)
+                host_mac = self.topology.get_host_mac(host)
+
+                self.controllers[src].table_add(
+                    table_name='forwarding_table',
+                    action_name='set_path',
+                    match_keys=[host_ip, str(idx), str(classification.value)],
+                    action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
+                )
 
     def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
         if via is None:

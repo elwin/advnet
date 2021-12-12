@@ -2,12 +2,13 @@
 #include <core.p4>
 #include <v1model.p4>
 
-//My includes
+// My includes
 #include "include/headers.p4"
 #include "include/parsers.p4"
 
-//My defines
-//ADD DEFINES
+// My defines
+const bit<4> CLASS_TCP    = 1;
+const bit<4> CLASS_UDP    = 2;
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -47,6 +48,7 @@ control MyIngress(inout headers hdr,
         key = {
             hdr.ipv4.dstAddr: lpm;
             meta.hash: exact;
+            meta.classification: exact;
         }
         actions = {
             set_path;
@@ -68,8 +70,10 @@ control MyIngress(inout headers hdr,
 
             if (hdr.ipv4.isValid()) {
                 if (hdr.udp.isValid()) {
+                    meta.classification = CLASS_UDP;
                     random(meta.hash, (bit<8>)0, (bit<8>)9);
                 } else if (hdr.tcp.isValid()) {
+                    meta.classification = CLASS_TCP;
                     hash(meta.hash,
                         HashAlgorithm.crc16,
                         (bit<1>) 0,

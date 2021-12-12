@@ -88,6 +88,7 @@ header path_t {
 // Instantiate metadata fields
 struct metadata {
     bit<8> hash;
+    bit<4> classification;
 }
 
 // Instantiate packet headers
