@@ -59,6 +59,10 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
+        if (!hdr.ipv4.isValid()) {
+            drop(); return;
+        }
+
         if (!hdr.path.isValid()) {
             // Here we encounter a packet coming directly from the host,
             // i.e. the path header is not yet set. We enable it
@@ -68,26 +72,24 @@ control MyIngress(inout headers hdr,
             hdr.path.protocol = hdr.ipv4.protocol;
             hdr.ipv4.protocol = TYPE_PATH;
 
-            if (hdr.ipv4.isValid()) {
-                if (hdr.udp.isValid()) {
-                    meta.classification = CLASS_UDP;
-                    random(meta.hash, (bit<8>)0, (bit<8>)9);
-                } else if (hdr.tcp.isValid()) {
-                    meta.classification = CLASS_TCP;
-                    hash(meta.hash,
-                        HashAlgorithm.crc16,
-                        (bit<1>) 0,
-                        { hdr.ipv4.srcAddr,
-                            hdr.ipv4.dstAddr,
-                            hdr.tcp.srcPort,
-                            hdr.tcp.dstPort,
-                            hdr.ipv4.protocol
-                        }, (bit<8>) 10
-                    );
-                }
-
-                forwarding_table.apply();
+            if (hdr.udp.isValid()) {
+                meta.classification = CLASS_UDP;
+                random(meta.hash, (bit<8>)0, (bit<8>)9);
+            } else if (hdr.tcp.isValid()) {
+                meta.classification = CLASS_TCP;
+                hash(meta.hash,
+                    HashAlgorithm.crc16,
+                    (bit<1>) 0,
+                    { hdr.ipv4.srcAddr,
+                        hdr.ipv4.dstAddr,
+                        hdr.tcp.srcPort,
+                        hdr.tcp.dstPort,
+                        hdr.ipv4.protocol
+                    }, (bit<8>) 10
+                );
             }
+
+            forwarding_table.apply();
         }
 
         // Extract the next hop from the encoded hop list. Let's say the
