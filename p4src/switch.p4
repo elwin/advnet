@@ -26,9 +26,18 @@ control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
+    counter(32, CounterType.packets_and_bytes) port_counter;
+
     action drop() {
         mark_to_drop(standard_metadata);
     }
+
+    action send_heartbeat() {
+        // we make sure the other switch treats the packet as probe from the other side
+        hdr.heartbeat.from_cp = 0;
+        standard_metadata.egress_spec = hdr.heartbeat.port;
+    }
+
 
     action set_path(macAddr_t dstAddr, bit<32> hops, bit<8> hop_count) {
         // This action is only called on the first switch after the
@@ -59,6 +68,19 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
+        port_counter.count((bit<32>) standard_metadata.ingress_port);
+
+        if (hdr.heartbeat.isValid()) {
+            if (hdr.heartbeat.from_cp == 1) {
+                send_heartbeat(); return;
+            }
+
+            else {
+                drop(); return;
+            }
+
+        }
+
         if (!hdr.ipv4.isValid()) {
             drop(); return;
         }
