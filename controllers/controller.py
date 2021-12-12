@@ -206,15 +206,14 @@ class Controller(object):
         self.recompute_weights()
 
         for src, dst in itertools.permutations(self.switches(), 2):
-            paths = self.get_paths_between_filtered(src, dst)
+            paths = self.get_paths_between_filtered(Classification.TCP, src, dst)
             self.register_paths(src, dst, paths, Classification.TCP)
 
-            wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
-            if len(wp_constraints) == 1:
-                wp_constraint = wp_constraints[0]
-                paths = self.get_paths_between_filtered(src, dst, via=wp_constraint.via)
-            elif len(wp_constraints) > 1:
-                raise Exception('too many waypoint constraints found')
+            wp_constraint = next(filter(lambda c: c.src == src and c.dst == dst, self.waypoints), None)
+            paths = self.get_paths_between_filtered(
+                Classification.UDP, src, dst,
+                via=wp_constraint.via if wp_constraint else None,
+            )
 
             self.register_paths(src, dst, paths, Classification.UDP)
 
@@ -244,8 +243,9 @@ class Controller(object):
                     action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                 )
 
-    def get_paths_between_filtered(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
-        paths = self.get_paths_between(src, dst, via, k)
+    def get_paths_between_filtered(self, classification: Classification, src: str, dst: str,
+                                   via: typing.Optional[str] = None, k: int = 4):
+        paths = self.get_paths_between(classification, src, dst, via, k)
         paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
         paths = sorted(paths, key=lambda path: networkx.path_weight(self.topology, path, weight='weight'))
         paths = list(paths)
@@ -259,14 +259,20 @@ class Controller(object):
 
         return paths
 
-    def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
+    def get_paths_between(self, classification: Classification, src: str, dst: str, via: typing.Optional[str] = None,
+                          k: int = 4):
         if via is None:
-            return itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k)
+            if classification is Classification.TCP:
+                return itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k)
+            elif classification is Classification.UDP:
+                return itertools.islice(nx.shortest_simple_paths(self.topology, src, dst), k)
+            else:
+                raise Exception(f'invalid classification "{classification.name}"')
 
         # Must be converted to list first, otherwise the following list comprehension
         # will yield some unexpected stuff (generators and so)
-        first_paths = list(self.get_paths_between(src, via, k=k))
-        second_paths = list(self.get_paths_between(via, dst, k=k))
+        first_paths = list(self.get_paths_between(classification, src, via, k=k))
+        second_paths = list(self.get_paths_between(classification, via, dst, k=k))
         paths = [
             [*first_path, *second_path[1:]]
             for first_path in first_paths
