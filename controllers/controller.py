@@ -19,6 +19,7 @@ except ModuleNotFoundError:
 
 INFINITY = 8000000
 BUFFER_SIZE = 8
+MAX_PATH_LENGTH = 8
 
 
 def pairwise(iterable):
@@ -239,7 +240,9 @@ class Controller(object):
 
     def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
         if via is None:
-            paths = list(itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k))
+            paths = itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k)
+            paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
+            paths = list(paths)
             if len(paths) == 0:
                 raise Exception(f'no paths found between {src} and {dst}')
 
@@ -253,7 +256,13 @@ class Controller(object):
             for second_path in second_paths
         ]
 
-        return list(filter(lambda path: len(path) == len(set(path)), paths))
+        paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
+        paths = filter(lambda path: len(path) == len(set(path)), paths)
+        paths = list(paths)
+        if len(paths) == 0:
+            raise Exception(f'no paths found between {src} and {dst}')
+
+        return paths
 
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []
