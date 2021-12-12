@@ -1,5 +1,4 @@
 import argparse
-import dataclasses
 import itertools
 import logging
 import socket
@@ -9,6 +8,7 @@ import typing
 import networkx as nx
 from p4utils.utils.helper import load_topo
 
+from constraints import load_waypoints
 from mock_socket import MockSocket
 from smart_switch import SmartSwitch
 
@@ -19,13 +19,6 @@ except ModuleNotFoundError:
 
 INFINITY = 8000000
 BUFFER_SIZE = 8
-
-
-@dataclasses.dataclass(frozen=True)
-class Waypoint:
-    src: str
-    dst: str
-    via: str
 
 
 def pairwise(iterable):
@@ -48,7 +41,7 @@ class Controller(object):
         # self.last_measurements: typing.Dict[typing.Tuple, typing.List] = {}
         # self.old_paths = []
         # self.new_paths = []
-        # self.waypoints: typing.List[Waypoint] = []
+        self.waypoints = load_waypoints(slas_path)
 
     # def compute_weight(self, src: str, dst: str):
     #     if not self.links[(src, dst)]:
@@ -213,7 +206,14 @@ class Controller(object):
         #         )
 
         for src, dst in itertools.permutations(self.switches(), 2):
-            paths = self.get_paths_between(src, dst)
+            wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
+            if len(wp_constraints) == 0:
+                paths = self.get_paths_between(src, dst)
+            elif len(wp_constraints) == 1:
+                wp_constraint = wp_constraints[0]
+                paths = self.get_paths_between(src, dst, via=wp_constraint.via)
+            else:
+                raise Exception('too many waypoint constraints found')
 
             # Round robin over those paths
             for idx, path in enumerate((10 * paths)[:10]):
@@ -245,7 +245,15 @@ class Controller(object):
 
             return paths
 
-        raise Exception('via not supported yet')
+        first_paths = self.get_paths_between(src, via, k=k)
+        second_paths = self.get_paths_between(via, dst, k=k)
+        paths = [
+            [*first_path, *second_path[1:]]
+            for first_path in first_paths
+            for second_path in second_paths
+        ]
+
+        return paths
 
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []
