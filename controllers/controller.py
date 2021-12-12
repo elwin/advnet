@@ -234,8 +234,8 @@ class Controller(object):
                         action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                     )
 
-        for switch in self.switches():
-            self.controllers[switch].apply()
+        for src in self.switches():
+            self.controllers[src].apply()
 
     def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
         if via is None:
@@ -253,7 +253,7 @@ class Controller(object):
             for second_path in second_paths
         ]
 
-        return paths
+        return list(filter(lambda path: len(path) == len(set(path)), paths))
 
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []

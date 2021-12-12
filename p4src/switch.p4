@@ -63,8 +63,8 @@ control MyIngress(inout headers hdr,
             // and query the forwarding_table for the correct path.
 
             hdr.path.setValid();
-            hdr.path.etherType = hdr.ethernet.etherType;
-            hdr.ethernet.etherType = TYPE_PATH;
+            hdr.path.protocol = hdr.ipv4.protocol;
+            hdr.ipv4.protocol = TYPE_PATH;
 
             if (hdr.ipv4.isValid()) {
                 if (hdr.udp.isValid()) {
@@ -102,7 +102,7 @@ control MyIngress(inout headers hdr,
             // Once hop_count has reached 0, this means we're now at the
             // last switch before the end host. Here, we simply remove
             // our header and set the packet to the host.
-            hdr.ethernet.etherType = hdr.path.etherType;
+            hdr.ipv4.protocol = hdr.path.protocol;
             hdr.path.setInvalid();
         }
     }

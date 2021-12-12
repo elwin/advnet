@@ -8,11 +8,11 @@
 // Ethernet Types
 const bit<16> TYPE_IPV4 = 0x0800;
 const bit<16> HEARTBEAT = 0x1234;
-const bit<16> TYPE_PATH = 0x8888;
 
 // IPv4 Types
 const bit<8>  TYPE_TCP  = 6;
 const bit<8>  TYPE_UDP  = 17;
+const bit<8> TYPE_PATH  = 144;
 
 // Define constants
 #define PORT_WIDTH 32
@@ -80,7 +80,7 @@ header udp_t {
 header path_t {
     bit<32> hops;
     bit<8>  hop_count;
-    bit<16> etherType;
+    bit<8>  protocol;
     bit<8>  padding;
 }
 
@@ -93,9 +93,9 @@ struct metadata {
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
+    ipv4_t                          ipv4;
     path_t                          path;
     heartbeat_t                     heartbeat;
-    ipv4_t                          ipv4;
     tcp_t                           tcp;
     udp_t                           udp;
 }
