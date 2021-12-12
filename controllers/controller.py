@@ -192,11 +192,6 @@ class Controller(object):
         self.recompute_paths()
 
         last_monitor = time.time()
-
-        self.set_link_down('BAR', 'MAD')
-        self.recompute_weights()
-        self.recompute_paths()
-
         while True:
             time.sleep(max(last_monitor + MIN_MONITOR_WAIT - time.time(), 0))
             last_monitor = time.time()
