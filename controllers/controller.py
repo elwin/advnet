@@ -239,7 +239,7 @@ class Controller(object):
 
     def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
         if via is None:
-            paths = list(itertools.islice(nx.shortest_simple_paths(self.topology, src, dst), k))
+            paths = list(itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k))
             if len(paths) == 0:
                 raise Exception(f'no paths found between {src} and {dst}')
 
