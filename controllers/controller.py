@@ -7,6 +7,7 @@ import sys
 import typing
 
 import networkx as nx
+import networkx.algorithms.simple_paths
 from p4utils.utils.helper import load_topo
 
 from constraints import load_waypoints
@@ -21,6 +22,7 @@ except ModuleNotFoundError:
 INFINITY = 8000000
 BUFFER_SIZE = 8
 MAX_PATH_LENGTH = 8
+PATH_VARIATION = 10
 
 
 class Classification(enum.Enum):
@@ -50,22 +52,23 @@ class Controller(object):
         # self.new_paths = []
         self.waypoints = load_waypoints(slas_path)
 
-    # def compute_weight(self, src: str, dst: str):
-    #     if not self.links[(src, dst)]:
-    #         return INFINITY
-    #
-    #     edge = self.topology[src][dst]
-    #     bw_bytes, _ = self.get_bandwidth(src, dst)
-    #     delay = edge['delay']
-    #     congestion_ratio = bw_bytes / (10 * 2 ** 10)
-    #
-    #     return delay + 20 * congestion_ratio ** 2 + 1
-    #     # return delay  # bandwidth for now, performance becomes worse
+    def compute_weight(self, src: str, dst: str):
+        return self.topology[src][dst]['delay'] + 1
+        # if not self.links[(src, dst)]:
+        #     return INFINITY
+        #
+        # edge = self.topology[src][dst]
+        # bw_bytes, _ = self.get_bandwidth(src, dst)
+        # delay = edge['delay']
+        # congestion_ratio = bw_bytes / (10 * 2 ** 10)
+        #
+        # return delay + 20 * congestion_ratio ** 2 + 1
+        # return delay  # bandwidth for now, performance becomes worse
 
-    # def set_all_weights(self):
-    #     for src, dst in itertools.permutations(self.switches(), 2):
-    #         if self.topology.are_neighbors(src, dst):
-    #             self.topology[src][dst]['weight'] = self.compute_weight(src, dst)
+    def recompute_weights(self):
+        for src, dst in itertools.permutations(self.switches(), 2):
+            if self.topology.are_neighbors(src, dst):
+                self.topology[src][dst]['weight'] = self.compute_weight(src, dst)
 
     @staticmethod
     def load_topology():
@@ -80,6 +83,7 @@ class Controller(object):
             delay = float(delay[:-2])
 
             topology[src][dst]['delay'] = delay
+            topology[src][dst]['capacity'] = 10
 
         return topology
 
@@ -199,27 +203,16 @@ class Controller(object):
     #         logging.info(f'[path] removed {path}')
 
     def run(self):
-        # for src in self.switches():
-        #     for host in self.topology.get_hosts_connected_to(src):
-        #         host_ip = self.get_host_ip_with_subnet(host)
-        #         host_mac = self.topology.get_host_mac(host)
-        #         next_hop_egress = self.get_egress_port(src, host)
-        #
-        #         self.controllers[src].table_add(
-        #             table_name='forwarding_table',
-        #             action_name='set_path',
-        #             match_keys=[host_ip],
-        #             action_params=[host_mac, str(next_hop_egress), '1', '0x0']
-        #         )
+        self.recompute_weights()
 
         for src, dst in itertools.permutations(self.switches(), 2):
-            paths = self.get_paths_between(src, dst)
+            paths = self.get_paths_between_filtered(src, dst)
             self.register_paths(src, dst, paths, Classification.TCP)
 
             wp_constraints = list(filter(lambda c: c.src == src and c.dst == dst, self.waypoints))
             if len(wp_constraints) == 1:
                 wp_constraint = wp_constraints[0]
-                paths = self.get_paths_between(src, dst, via=wp_constraint.via)
+                paths = self.get_paths_between_filtered(src, dst, via=wp_constraint.via)
             elif len(wp_constraints) > 1:
                 raise Exception('too many waypoint constraints found')
 
@@ -230,7 +223,10 @@ class Controller(object):
 
     def register_paths(self, src: str, dst: str, paths: typing.List[typing.List], classification: Classification):
         # Round robin over those paths
-        for idx, path in enumerate((10 * paths)[:10]):
+        for path in paths:
+            logging.info(f'[path] {classification.name} {src}->{dst}: {path}')
+
+        for idx, path in enumerate((PATH_VARIATION * paths)[:PATH_VARIATION]):
 
             for host in self.topology.get_hosts_connected_to(dst):
                 complete_path = path + [host]
@@ -248,31 +244,36 @@ class Controller(object):
                     action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                 )
 
+    def get_paths_between_filtered(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
+        paths = self.get_paths_between(src, dst, via, k)
+        paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
+        paths = sorted(paths, key=lambda path: networkx.path_weight(self.topology, path, weight='weight'))
+        paths = list(paths)
+
+        if len(paths) == 0:
+            log = f'no paths found between {src} and {dst}'
+            if via is not None:
+                log = f'{log} via {via}'
+
+            raise Exception(log)
+
+        return paths
+
     def get_paths_between(self, src: str, dst: str, via: typing.Optional[str] = None, k: int = 4):
         if via is None:
-            paths = itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k)
-            paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
-            paths = list(paths)
-            if len(paths) == 0:
-                raise Exception(f'no paths found between {src} and {dst}')
+            return itertools.islice(nx.edge_disjoint_paths(self.topology, src, dst), k)
 
-            return paths
-
-        first_paths = self.get_paths_between(src, via, k=k)
-        second_paths = self.get_paths_between(via, dst, k=k)
+        # Must be converted to list first, otherwise the following list comprehension
+        # will yield some unexpected stuff (generators and so)
+        first_paths = list(self.get_paths_between(src, via, k=k))
+        second_paths = list(self.get_paths_between(via, dst, k=k))
         paths = [
             [*first_path, *second_path[1:]]
             for first_path in first_paths
             for second_path in second_paths
         ]
 
-        paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
-        paths = filter(lambda path: len(path) == len(set(path)), paths)
-        paths = list(paths)
-        if len(paths) == 0:
-            raise Exception(f'no paths found between {src} and {dst}')
-
-        return paths
+        return filter(lambda path: len(path) == len(set(path)), paths)
 
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []
