@@ -19,6 +19,10 @@ class SimpleSwitchThriftAPI:
     def reset_state(self):
         logging.info(f'[{self.thrift_port}] <reset state>')
 
+    def table_add_match_only(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
+                  byts=None):
+        logging.info(f'[{self.thrift_port}] <table modify> {table_name} {action_name} {match_keys} {action_params}')
+
     def table_add(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
                   byts=None):
         logging.info(f'[{self.thrift_port}] <table add> {table_name} {action_name} {match_keys} {action_params}')

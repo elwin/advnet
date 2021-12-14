@@ -46,6 +46,7 @@ class Configuration:
     def __init__(self):
         self.table_set_default = []
         self.table_add = []
+        self.table_add_match_only = []
 
 
 class SmartSwitch:
@@ -75,6 +76,13 @@ class SmartSwitch:
             action_params=tuple(action_params),
         ))
 
+        self.new_config.table_add_match_only.append(TableAdd(
+            table_name=table_name,
+            action_name=action_name,
+            match_keys=tuple(match_keys),
+            action_params=(),
+        ))
+
         # return self.api.table_add(table_name, action_name, match_keys, action_params)
 
     def counter_read(self, counter_name: str, index: int):
@@ -82,7 +90,8 @@ class SmartSwitch:
 
     def apply_table_add(self):
         adds: typing.Set[TableAdd] = set(self.new_config.table_add) - set(self.old_config.table_add)
-        removes: typing.Set[TableAdd] = set(self.old_config.table_add) - set(self.new_config.table_add)
+        removes: typing.Set[TableAdd] = set(self.old_config.table_add_match_only) - set(
+            self.new_config.table_add_match_only)
 
         # TODO likely won't have to remove entries that are replaced
         #  with new entries with the same table_name and match_keys
@@ -91,13 +100,28 @@ class SmartSwitch:
             self.api.table_delete_match(remove.table_name, list(remove.match_keys))
 
         for add in adds:
-            logging.info(f'[table_mod][{self.name}] adding {add}')
-            self.api.table_add(
-                add.table_name,
-                add.action_name,
-                list(add.match_keys),
-                list(add.action_params),
+            entry = TableAdd(
+                table_name=add.table_name,
+                action_name=add.action_name,
+                match_keys=add.match_keys,
+                action_params=(),
             )
+            if entry in self.old_config.table_add_match_only:
+                logging.info(f'[table_mod][{self.name}] modifying {add}')
+                self.api.table_modify_match(
+                    add.table_name,
+                    add.action_name,
+                    list(add.match_keys),
+                    list(add.action_params),
+                )
+            else:
+                logging.info(f'[table_mod][{self.name}] adding {add}')
+                self.api.table_add(
+                    add.table_name,
+                    add.action_name,
+                    list(add.match_keys),
+                    list(add.action_params),
+                )
 
     def register_write(self, register_name: str, index, value: int):
         logging.info(f'[register_mod][{self.name}] setting {register_name}[{index}] -> {value}')

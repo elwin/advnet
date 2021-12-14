@@ -1,6 +1,7 @@
 import argparse
 import codecs
 import enum
+import functools
 import itertools
 import logging
 import operator
@@ -136,6 +137,7 @@ class Controller(object):
             thrift_port = self.topology.get_thrift_port(p4switch)
             self.controllers[p4switch] = SmartSwitch(SimpleSwitchThriftAPI(thrift_port), p4switch)
 
+    @functools.lru_cache(maxsize=None)
     def get_host_ip_with_subnet(self, name):
         if not self.topology.isHost(name):
             raise TypeError(f'{name} is not a host.')
@@ -145,6 +147,7 @@ class Controller(object):
 
         return ip
 
+    @functools.lru_cache(maxsize=None)
     def get_egress_port(self, src, dst):
         interface_info = self.topology.get_node_intfs(fields=['node_neigh', 'port'])
         for dst_cur, dst_port in interface_info[src].values():
@@ -188,8 +191,8 @@ class Controller(object):
         self.connect_to_sockets()
         self.reset_states()
         self.initialize_link_monitoring()
-        self.recompute_weights()
-        self.recompute_paths()
+        time_function(self.recompute_weights)
+        time_function(self.recompute_paths)
 
         last_monitor = time.time()
         while True:
@@ -201,21 +204,32 @@ class Controller(object):
                 time_function(self.recompute_weights)
                 time_function(self.recompute_paths)
 
+    @functools.lru_cache(maxsize=None)
+    def get_hosts_connected_to(self, dst):
+        return self.topology.get_hosts_connected_to(dst)
+
+    @functools.lru_cache(maxsize=None)
+    def get_host_mac(self, host):
+        return self.topology.get_host_mac(host)
+
     def register_paths(self, src: str, dst: str, paths: typing.List[typing.List], classification: Classification):
         # Round robin over those paths
         for path in paths:
             logging.info(f'[path] {classification.name} {src}->{dst}: {path}')
 
-        for idx, path in enumerate((PATH_VARIATION * paths)[:PATH_VARIATION]):
+        paths = (PATH_VARIATION * paths)[:PATH_VARIATION]
+        paths = sorted(paths)
 
-            for host in self.topology.get_hosts_connected_to(dst):
+        for idx, path in enumerate(paths):
+
+            for host in self.get_hosts_connected_to(dst):
                 complete_path = path + [host]
                 egress_list = list(reversed(self.get_egress_list(complete_path)))
                 egress_list_encoded = self.convert_to_hex(egress_list)
                 egress_list_count = len(egress_list)
 
                 host_ip = self.get_host_ip_with_subnet(host)
-                host_mac = self.topology.get_host_mac(host)
+                host_mac = self.get_host_mac(host)
 
                 self.controllers[src].table_add(
                     table_name='forwarding_table',
@@ -262,10 +276,18 @@ class Controller(object):
 
         return paths
 
+    @functools.lru_cache(maxsize=None)
+    def node_to_node_port_num(self, src, dst):
+        return self.topology.node_to_node_port_num(src, dst)
+
+    @functools.lru_cache(maxsize=None)
+    def node_to_node_mac(self, src, dst):
+        return self.topology.node_to_node_mac(src, dst)
+
     def get_egress_list(self, path: typing.List[str]) -> typing.List[int]:
         egress_list = []
         for src, dst in pairwise(path):
-            egress_list.append(self.topology.node_to_node_port_num(src, dst))
+            egress_list.append(self.node_to_node_port_num(src, dst))
 
         return egress_list
 
@@ -279,9 +301,9 @@ class Controller(object):
         return hex(out)
 
     def send_heartbeat(self, src, dst):
-        src_mac = self.topology.node_to_node_mac(src, dst)
-        dst_mac = self.topology.node_to_node_mac(dst, src)
-        egress_port = self.topology.node_to_node_port_num(src, dst)
+        src_mac = self.node_to_node_mac(src, dst)
+        dst_mac = self.node_to_node_mac(dst, src)
+        egress_port = self.node_to_node_port_num(src, dst)
 
         # ethernet
         # noinspection PyTypeChecker
@@ -301,6 +323,7 @@ class Controller(object):
 
         logging.info(f'[heartbeat] sent heartbeat {src} -> {dst}')
 
+    @functools.lru_cache(maxsize=None)
     def switches(self):
         return list(self.topology.get_p4switches().keys())
 
@@ -314,7 +337,7 @@ class Controller(object):
             bytes_count, packet_count = ctrl.counter_read(
                 'port_counter',
                 # we're looking at the ingress, thus its reversed
-                self.topology.node_to_node_port_num(dst, src),
+                self.node_to_node_port_num(dst, src),
             )
 
             cur = time.time(), bytes_count, packet_count
