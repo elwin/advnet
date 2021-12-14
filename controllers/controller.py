@@ -30,6 +30,7 @@ MAX_PATH_LENGTH = 8
 PATH_VARIATION = 10
 MIN_MONITOR_WAIT = 0.25
 MAX_RECOMPUTATION = 4
+DELAY_MULTIPLIER_THRESHOLD = 1.25
 
 
 class Classification(enum.Enum):
@@ -170,6 +171,8 @@ class Controller(object):
                 via=wp_constraint.via if wp_constraint else None,
             )
 
+            costs = list(map(lambda x: nx.path_weight(self.graph, x, weight='weight'), paths))
+
             self.register_paths(src, dst, paths, Classification.UDP)
 
         for src in self.switches():
@@ -254,7 +257,10 @@ class Controller(object):
             if classification is Classification.TCP:
                 return itertools.islice(nx.edge_disjoint_paths(self.graph, src, dst), k)
             elif classification is Classification.UDP:
-                return itertools.islice(nx.shortest_simple_paths(self.graph, src, dst), k)
+                paths = list(itertools.islice(nx.shortest_simple_paths(self.graph, src, dst), k * 2))
+                max_weight = nx.path_weight(self.graph, paths[0], weight='weight') * DELAY_MULTIPLIER_THRESHOLD
+                paths = filter(lambda path: nx.path_weight(self.graph, path, weight='weight') <= max_weight, paths)
+                return itertools.islice(paths, k)
             else:
                 raise Exception(f'invalid classification "{classification.name}"')
 
