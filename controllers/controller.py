@@ -15,9 +15,10 @@ import networkx as nx
 import networkx.algorithms.simple_paths
 from p4utils.utils.helper import load_topo
 
-from constraints import load_waypoints
-from mock_socket import MockSocket
-from smart_switch import SmartSwitch
+from controllers.constraints import load_waypoints
+from controllers.mock_socket import MockSocket
+from controllers.smart_switch import SmartSwitch
+from controllers.utils import pairwise, time_function
 
 try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
@@ -34,22 +35,6 @@ MAX_RECOMPUTATION = 4
 class Classification(enum.Enum):
     TCP = 1
     UDP = 2
-
-
-def pairwise(iterable):
-    # pairwise('ABCDEFG') --> AB BC CD DE EF FG
-    a, b = itertools.tee(iterable)
-    next(b, None)
-    return zip(a, b)
-
-
-def time_function(f: typing.Callable):
-    start = time.time()
-    x = f()
-    duration = time.time() - start
-    duration = round(duration * 1000, 2)
-    logging.info(f'[timing] executed {f.__name__} in {duration}ms')
-    return x
 
 
 class Controller(object):
