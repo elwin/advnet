@@ -83,7 +83,7 @@ class Controller(object):
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
                 self.graph[src][dst]['capacity'] = 10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8
                 cap = self.graph[src][dst]['capacity']
-                logging.info(f'[cap] {cap}')
+                logging.info(f'[cap] {round(cap / (2 ** 20), 2)}')
 
     @staticmethod
     def load_topology():
@@ -206,7 +206,7 @@ class Controller(object):
 
             should_recompute = time_function(self.monitor_rates)
             if time.time() - last_recomputation > MAX_RECOMPUTATION:
-                should_recompute
+                should_recompute = True
 
             if should_recompute:
                 time_function(self.recompute_weights)
