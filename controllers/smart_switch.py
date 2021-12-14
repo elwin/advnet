@@ -1,4 +1,5 @@
 import logging
+import time
 import typing
 from dataclasses import dataclass
 
@@ -6,6 +7,16 @@ try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 except ModuleNotFoundError:
     pass
+
+
+# TODO Refactor
+def time_function(f: typing.Callable):
+    start = time.time()
+    x = f()
+    duration = time.time() - start
+    duration = round(duration * 1000, 2)
+    logging.info(f'[timing] executed {f.__name__} in {duration}ms')
+    return x
 
 
 @dataclass(init=True, frozen=True)

@@ -28,6 +28,7 @@ BUFFER_SIZE = 8
 MAX_PATH_LENGTH = 8
 PATH_VARIATION = 10
 MIN_MONITOR_WAIT = 0.25
+MAX_RECOMPUTATION = 4
 
 
 class Classification(enum.Enum):
@@ -80,6 +81,9 @@ class Controller(object):
             if self.graph.has_edge(src, dst):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
+                self.graph[src][dst]['capacity'] = 10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8
+                cap = self.graph[src][dst]['capacity']
+                logging.info(f'[cap] {cap}')
 
     @staticmethod
     def load_topology():
@@ -156,19 +160,19 @@ class Controller(object):
 
         raise Exception(f'no interface found between {src} and {dst}')
 
-    # def get_bandwidth(self, src, dst):
-    #     link_bw = self.last_measurements[(src, dst)]
-    #
-    #     if len(link_bw) < 2:
-    #         logging.info(f'[bandwidth] no bandwidth for {src} -> {dst} yet')
-    #         return 0, 0
-    #
-    #     diff = tuple(map(operator.sub, link_bw[0], link_bw[-1]))
-    #
-    #     bytes_rate = diff[1] / diff[0]
-    #     packet_rate = diff[2] / diff[0]
-    #
-    #     return bytes_rate, packet_rate
+    def get_bandwidth(self, src, dst):
+        link_bw = self.last_measurements[(src, dst)]
+
+        if len(link_bw) < 2:
+            logging.info(f'[bandwidth] no bandwidth for {src} -> {dst} yet')
+            return 0, 0
+
+        diff = tuple(map(operator.sub, link_bw[0], link_bw[-1]))
+
+        bytes_rate = diff[1] / diff[0]
+        packet_rate = diff[2] / diff[0]
+
+        return bytes_rate, packet_rate
 
     def recompute_paths(self):
         for src, dst in itertools.permutations(self.switches(), 2):
@@ -195,14 +199,19 @@ class Controller(object):
         time_function(self.recompute_paths)
 
         last_monitor = time.time()
+        last_recomputation = time.time()
         while True:
             time.sleep(max(last_monitor + MIN_MONITOR_WAIT - time.time(), 0))
             last_monitor = time.time()
 
             should_recompute = time_function(self.monitor_rates)
+            if time.time() - last_recomputation > MAX_RECOMPUTATION:
+                should_recompute
+
             if should_recompute:
                 time_function(self.recompute_weights)
                 time_function(self.recompute_paths)
+                last_recomputation = time.time()
 
     @functools.lru_cache(maxsize=None)
     def get_hosts_connected_to(self, dst):
