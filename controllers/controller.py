@@ -1,5 +1,6 @@
 import argparse
 import codecs
+import dataclasses
 import enum
 import functools
 import itertools
@@ -39,6 +40,18 @@ class Classification(enum.Enum):
     UDP = 2
 
 
+@dataclasses.dataclass
+class Selection:
+    path: typing.List[str]
+    multiplier: int
+
+    def __lt__(self, other):
+        return self.multiplier < other.multiplier
+
+    def __str__(self):
+        return f'{self.multiplier}x: {self.path}'
+
+
 class Controller(object):
 
     def __init__(self, base_traffic: str, mock: bool, slas_path: str):
@@ -68,7 +81,7 @@ class Controller(object):
             if self.graph.has_edge(src, dst):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
-                self.graph[src][dst]['capacity'] = round(10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8)
+                self.graph[src][dst]['capacity'] = round((10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
                 cap = self.graph[src][dst]['capacity']
                 logging.info(f'[cap] {round(cap / (2 ** 20), 2)}')
 
@@ -209,7 +222,7 @@ class Controller(object):
     def get_host_mac(self, host):
         return self.topology.get_host_mac(host)
 
-    def register_paths(self, src: str, dst: str, paths: typing.List[typing.List], classification: Classification):
+    def register_paths(self, src: str, dst: str, paths: typing.List[Selection], classification: Classification):
         # Round robin over those paths
         for path in paths:
             logging.info(f'[path] {classification.name} {src}->{dst}: {path}')
@@ -220,7 +233,7 @@ class Controller(object):
         for idx, path in enumerate(paths):
 
             for host in self.get_hosts_connected_to(dst):
-                complete_path = path + [host]
+                complete_path = path.path + [host]
                 egress_list = list(reversed(self.get_egress_list(complete_path)))
                 egress_list_encoded = self.convert_to_hex(egress_list)
                 egress_list_count = len(egress_list)
@@ -238,7 +251,7 @@ class Controller(object):
     def get_paths_between_filtered(self, classification: Classification, src: str, dst: str,
                                    via: typing.Optional[str] = None, k: int = 4):
         paths = self.get_paths_between(classification, src, dst, via, k)
-        paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
+        paths = filter(lambda path: len(path.path) <= MAX_PATH_LENGTH, paths)
         # paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
         paths = list(paths)
 
@@ -295,33 +308,37 @@ class Controller(object):
 
         return cur_capacity
 
+    @staticmethod
+    def extract_paths(selections: typing.List[Selection]):
+        return [selection.path for selection in selections]
+
     def get_paths_between(self, classification: Classification, src: str, dst: str, via: typing.Optional[str] = None,
                           k: int = 4):
         if via is None:
             if classification is Classification.TCP:
                 paths, capacities = self.compute_best_flow(src, dst)
 
-                return paths
+                return [Selection(path=x[0], multiplier=x[1]) for x in zip(paths, capacities)]
             elif classification is Classification.UDP:
                 paths = list(itertools.islice(nx.shortest_simple_paths(self.graph, src, dst), k * 2))
                 max_weight = nx.path_weight(self.graph, paths[0], weight='weight') * DELAY_MULTIPLIER_THRESHOLD
                 paths = filter(lambda path: nx.path_weight(self.graph, path, weight='weight') <= max_weight, paths)
                 paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
-                return itertools.islice(paths, k)
+                paths = itertools.islice(paths, k)
+
+                return [Selection(path=path, multiplier=1) for path in paths]
             else:
                 raise Exception(f'invalid classification "{classification.name}"')
 
-        # Must be converted to list first, otherwise the following list comprehension
-        # will yield some unexpected stuff (generators and so)
-        first_paths = list(self.get_paths_between(classification, src, via, k=k))
-        second_paths = list(self.get_paths_between(classification, via, dst, k=k))
+        first_paths = self.extract_paths((self.get_paths_between(classification, src, via, k=k)))
+        second_paths = self.extract_paths((self.get_paths_between(classification, via, dst, k=k)))
         paths = [
             [*first_path, *second_path[1:]]
             for first_path in first_paths
             for second_path in second_paths
         ]
 
-        return paths
+        return [Selection(path=path, multiplier=1) for path in paths]
 
     @functools.lru_cache(maxsize=None)
     def node_to_node_port_num(self, src, dst):
