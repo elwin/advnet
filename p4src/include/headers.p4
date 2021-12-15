@@ -88,13 +88,18 @@ header path_t {
 // Instantiate metadata fields
 struct metadata {
     bit<8> hash;
+    bit<8> flow_hash;
     bit<8> udp_rate_limit_id;
     bit<13> flowlet_register_index;
     bit<48> flowlet_last_stamp;
     bit<48> flowlet_time_diff;
-    bit<16> flowlet_id;
+    bit<48> dst_mac_saved;
+    bit<32> f_hops_saved;
+    bit<8> f_hop_count_saved;
     bit<4> classification;
     bit<32> meter_tag;
+    bit<16> src_port;
+    bit<16> dst_port;
 }
 
 // Instantiate packet headers

@@ -204,6 +204,13 @@ class Controller(object):
         for src_sw in self.switches():
             self.initialize_meters(src_sw, bw, bw, bw, bw, bw)
 
+    def initialize_registers(self):
+        for src_sw in self.switches():
+            self.controllers[src_sw].api.register_write('hops_reg', [0, 1023], 0)
+            self.controllers[src_sw].api.register_write('hop_count_reg', [0, 1023], 0)
+            self.controllers[src_sw].api.register_write('dst_mac_addr_reg', [0, 1023], 0)
+            self.controllers[src_sw].api.register_write('flowlet_time_stamp_reg', [0, 1023], 0)
+
 
     def get_bandwidth(self, src, dst):
         link_bw = self.last_measurements[(src, dst)]
@@ -243,6 +250,7 @@ class Controller(object):
         self.reset_states()
         self.initialize_link_monitoring()
         self.initialize_all_sw_meters()
+        self.initialize_registers()
         time_function(self.recompute_weights)
         time_function(self.recompute_paths)
 

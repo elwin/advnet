@@ -9,9 +9,10 @@
 // My defines
 const bit<4> CLASS_TCP    = 1;
 const bit<4> CLASS_UDP    = 2;
-#define PORT_WIDTH 32
-#define REGISTER_SIZE 8192
+#define PATH_WIDTH 32
+#define REGISTER_SIZE 1024
 #define TIMESTAMP_WIDTH 48
+#define FLOWLET_TIMEOUT 48w27500
 
 
 /*************************************************************************
@@ -36,6 +37,12 @@ control MyIngress(inout headers hdr,
 
     // Seed for random number generator
     bit<7> seed;
+
+    // Registers to save known flows, egress ports of known flows and timestamps of known flows
+    register<bit<PATH_WIDTH>>(REGISTER_SIZE)      hops_reg;
+    register<bit<8>>(REGISTER_SIZE)               hop_count_reg;
+    register<bit<48>>(REGISTER_SIZE)              dst_mac_addr_reg;
+    register<bit<TIMESTAMP_WIDTH>>(REGISTER_SIZE) flowlet_time_stamp_reg;
     
 
     action drop() {
@@ -47,6 +54,40 @@ control MyIngress(inout headers hdr,
         hdr.heartbeat.from_cp = 0;
         standard_metadata.egress_spec = hdr.heartbeat.port;
     }
+
+    action recognise_flowlet() {
+
+        if (hdr.tcp.isValid()) {
+            meta.src_port = hdr.tcp.srcPort;
+            meta.dst_port = hdr.tcp.dstPort;
+        }
+
+        else if (hdr.udp.isValid()) {
+            meta.src_port = hdr.udp.srcPort;
+            meta.dst_port = hdr.udp.dstPort;           
+        }
+
+        hash(meta.flowlet_register_index,
+        HashAlgorithm.crc16,
+        (bit<1>)0,
+        { hdr.ipv4.srcAddr,
+        hdr.ipv4.dstAddr,
+        meta.src_port,
+        meta.dst_port,
+        hdr.ipv4.protocol},
+        (bit<14>)1024);
+
+        //Read previous time stamp
+        hop_count_reg.read(meta.f_hop_count_saved, (bit<32>)meta.flowlet_register_index);
+
+        //Read previous time stamp
+        flowlet_time_stamp_reg.read(meta.flowlet_last_stamp, (bit<32>)meta.flowlet_register_index);
+
+        //Update timestamp
+        flowlet_time_stamp_reg.write((bit<32>)meta.flowlet_register_index, standard_metadata.ingress_global_timestamp);
+
+    }
+
 
     action set_path(macAddr_t dstAddr, bit<32> hops, bit<8> hop_count) {
         // This action is only called on the first switch after the
@@ -155,24 +196,49 @@ control MyIngress(inout headers hdr,
             hdr.path.protocol = hdr.ipv4.protocol;
             hdr.ipv4.protocol = TYPE_PATH;
 
-            if (hdr.udp.isValid()) {
-                meta.classification = CLASS_UDP;
-                random(meta.hash, (bit<8>)0, (bit<8>)9);
-            } else if (hdr.tcp.isValid()) {
-                meta.classification = CLASS_TCP;
-                hash(meta.hash,
-                    HashAlgorithm.crc16,
-                    (bit<1>) 0,
-                    { hdr.ipv4.srcAddr,
-                        hdr.ipv4.dstAddr,
-                        hdr.tcp.srcPort,
-                        hdr.tcp.dstPort,
-                        hdr.ipv4.protocol
-                    }, (bit<8>) 10
-                );
+            // Check if flow has been seen before by the src switch
+            recognise_flowlet();
+            meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
+
+            // check if inter-packet gap is > 100ms (for known flow) or flow unknown
+            if (((meta.flowlet_time_diff > FLOWLET_TIMEOUT) && (meta.f_hop_count_saved != 0)) || (meta.f_hop_count_saved == 0)) {
+
+                if (hdr.udp.isValid()) {
+                    meta.classification = CLASS_UDP;
+                    random(meta.hash, (bit<8>)0, (bit<8>)9);
+                } else if (hdr.tcp.isValid()) {
+                    meta.classification = CLASS_TCP;
+                    hash(meta.hash,
+                        HashAlgorithm.crc16,
+                        (bit<1>) 0,
+                        { hdr.ipv4.srcAddr,
+                            hdr.ipv4.dstAddr,
+                            hdr.tcp.srcPort,
+                            hdr.tcp.dstPort,
+                            hdr.ipv4.protocol
+                        }, (bit<8>) 10
+                    );
+                }
+
+                forwarding_table.apply();
+                hops_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hops);
+                hop_count_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hop_count);
+                dst_mac_addr_reg.write((bit<32>)meta.flowlet_register_index, hdr.ethernet.dstAddr);
+
             }
 
-            forwarding_table.apply();
+            // Flow is known to the src switch and no timeout
+            else {
+                // Read next hops saved for the specific flow
+                hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
+                
+                hdr.path.hop_count = meta.f_hop_count_saved;
+
+                //Read dst MAC address
+                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>)meta.flowlet_register_index);
+            }
+
+
         }
 
         // Extract the next hop from the encoded hop list. Let's say the
