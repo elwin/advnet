@@ -81,7 +81,8 @@ class Controller(object):
             if self.graph.has_edge(src, dst):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
-                self.graph[src][dst]['capacity'] = round((10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
+                self.graph[src][dst]['capacity'] = round(
+                    (10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
                 cap = self.graph[src][dst]['capacity']
                 logging.info(f'[cap] {round(cap / (2 ** 20), 2)}')
 
@@ -222,31 +223,39 @@ class Controller(object):
     def get_host_mac(self, host):
         return self.topology.get_host_mac(host)
 
-    def register_paths(self, src: str, dst: str, paths: typing.List[Selection], classification: Classification):
-        # Round robin over those paths
-        for path in paths:
-            logging.info(f'[path] {classification.name} {src}->{dst}: {path}')
+    def register_paths(self, src: str, dst: str, selections: typing.List[Selection], classification: Classification):
+        selections = sorted(selections)
+        total_multiplier = sum(map(lambda x: x.multiplier, selections))
+        for selection in selections[:-1]:
+            selection.multiplier /= total_multiplier
+            selection.multiplier *= PATH_VARIATION
+            selection.multiplier = round(selection.multiplier)
+        selections[-1].multiplier = PATH_VARIATION - sum(map(lambda x: x.multiplier, selections[:-1]))
 
-        paths = (PATH_VARIATION * paths)[:PATH_VARIATION]
-        paths = sorted(paths)
+        for selection in selections:
+            logging.info(f'[path] {classification.name} {src}->{dst}: {selection}')
 
-        for idx, path in enumerate(paths):
+        idx = 0
+        for selection in selections:
+            for _ in range(selection.multiplier):
 
-            for host in self.get_hosts_connected_to(dst):
-                complete_path = path.path + [host]
-                egress_list = list(reversed(self.get_egress_list(complete_path)))
-                egress_list_encoded = self.convert_to_hex(egress_list)
-                egress_list_count = len(egress_list)
+                for host in self.get_hosts_connected_to(dst):
+                    complete_path = selection.path + [host]
+                    egress_list = list(reversed(self.get_egress_list(complete_path)))
+                    egress_list_encoded = self.convert_to_hex(egress_list)
+                    egress_list_count = len(egress_list)
 
-                host_ip = self.get_host_ip_with_subnet(host)
-                host_mac = self.get_host_mac(host)
+                    host_ip = self.get_host_ip_with_subnet(host)
+                    host_mac = self.get_host_mac(host)
 
-                self.controllers[src].table_add(
-                    table_name='forwarding_table',
-                    action_name='set_path',
-                    match_keys=[host_ip, str(idx), str(classification.value)],
-                    action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
-                )
+                    self.controllers[src].table_add(
+                        table_name='forwarding_table',
+                        action_name='set_path',
+                        match_keys=[host_ip, str(idx), str(classification.value)],
+                        action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
+                    )
+
+                idx += 1
 
     def get_paths_between_filtered(self, classification: Classification, src: str, dst: str,
                                    via: typing.Optional[str] = None, k: int = 4):
