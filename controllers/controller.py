@@ -160,6 +160,65 @@ class Controller(object):
 
         raise Exception(f'no interface found between {src} and {dst}')
 
+    # Get required limiting rates for UDP flows
+    def get_meter_rates_from_bw(self, bw, burst_size=700000):
+        """Returns the CIR and PIR rates and bursts to configure
+          meters at bw.
+
+        Args:
+            bw (float): desired bandwdith in mbps
+            burst_size (int, optional): Max capacity of the meter buckets. Defaults to 50000.
+
+        Returns:
+            list: [(rate1, burst1), (rate2, burst2)]
+        """
+
+        rates = []
+        burst_size = 700000
+        rates.append( (0.125 * (bw/2), burst_size) )
+        rates.append( (0.125 * bw, burst_size) )
+        return rates
+
+
+    # Set meter rates depending on bandwidth
+    def set_direct_meter_bandwidth(self, sw_name, meter_name, handle, bw):
+        """Sets a meter entry (using a table handle) to color packets using
+           bw mbps
+
+        Args:
+            sw_name (str): switch name
+            meter_name (str): meter name
+            handle (int): entry handle
+            bw (float): desired bandwidth to rate limit
+        """
+
+        rates = self.get_meter_rates_from_bw(bw)
+        self.controllers[sw_name].api.meter_set_rates(meter_name = meter_name, index = handle, rates = rates)
+
+    # Initialize meters depending on port number
+    def initialize_meters(self, src_sw, bw0, bw1, bw2, bw3, bw4):
+        # For ports 1-100
+        entry_handle = self.controllers[src_sw].api.table_add('rate_limiting', 'limit_rate', '0', '')
+        self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw0)
+        # For ports 100-200
+        entry_handle = self.controllers[src_sw].api.table_add('rate_limiting', 'limit_rate', '1', '')
+        self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw1)
+        # For ports 200-300
+        entry_handle = self.controllers[src_sw].api.table_add('rate_limiting', 'limit_rate', '2', '')
+        self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw2)
+        # For ports 300-400
+        entry_handle = self.controllers[src_sw].api.table_add('rate_limiting', 'limit_rate', '3', '')
+        self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw3)
+        # For ports 60001-*
+        entry_handle = self.controllers[src_sw].api.table_add('rate_limiting', 'limit_rate', '4', '')
+        self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw4)
+
+    def initialize_all_sw_meters(self):
+        bw = 1.5
+        for src_sw in self.switches():
+            self.initialize_meters(src_sw, bw, bw, bw, bw, bw)
+
+
     def get_bandwidth(self, src, dst):
         link_bw = self.last_measurements[(src, dst)]
 
@@ -195,6 +254,7 @@ class Controller(object):
         self.connect_to_sockets()
         self.reset_states()
         self.initialize_link_monitoring()
+        self.initialize_all_sw_meters()
 
         time_function(self.recompute_weights)
         time_function(self.recompute_paths)
