@@ -9,9 +9,10 @@
 // My defines
 const bit<4> CLASS_TCP    = 1;
 const bit<4> CLASS_UDP    = 2;
-#define PORT_WIDTH 32
-#define REGISTER_SIZE 8192
+#define PATH_WIDTH 32
+#define REGISTER_SIZE 1024
 #define TIMESTAMP_WIDTH 48
+#define FLOWLET_TIMEOUT 48w27500
 
 
 /*************************************************************************
@@ -37,6 +38,12 @@ control MyIngress(inout headers hdr,
     // Seed for random number generator
     bit<7> seed;
 
+    // Registers to save known flows, egress ports of known flows and timestamps of known flows
+    register<bit<PATH_WIDTH>>(REGISTER_SIZE)      hops_reg;
+    register<bit<8>>(REGISTER_SIZE)               hop_count_reg;
+    register<bit<48>>(REGISTER_SIZE)              dst_mac_addr_reg;
+    register<bit<TIMESTAMP_WIDTH>>(REGISTER_SIZE) flowlet_time_stamp_reg;
+
 
     action drop() {
         mark_to_drop(standard_metadata);
@@ -46,6 +53,39 @@ control MyIngress(inout headers hdr,
         // we make sure the other switch treats the packet as probe from the other side
         hdr.heartbeat.from_cp = 0;
         standard_metadata.egress_spec = hdr.heartbeat.port;
+    }
+
+    action recognise_flowlet() {
+
+        if (hdr.tcp.isValid()) {
+            meta.src_port = hdr.tcp.srcPort;
+            meta.dst_port = hdr.tcp.dstPort;
+        }
+
+        else if (hdr.udp.isValid()) {
+            meta.src_port = hdr.udp.srcPort;
+            meta.dst_port = hdr.udp.dstPort;
+        }
+
+        hash(meta.flowlet_register_index,
+        HashAlgorithm.crc16,
+        (bit<1>)0,
+        { hdr.ipv4.srcAddr,
+        hdr.ipv4.dstAddr,
+        meta.src_port,
+        meta.dst_port,
+        hdr.ipv4.protocol},
+        (bit<14>)1024);
+
+        //Read previous time stamp
+        hop_count_reg.read(meta.f_hop_count_saved, (bit<32>)meta.flowlet_register_index);
+
+        //Read previous time stamp
+        flowlet_time_stamp_reg.read(meta.flowlet_last_stamp, (bit<32>)meta.flowlet_register_index);
+
+        //Update timestamp
+        flowlet_time_stamp_reg.write((bit<32>)meta.flowlet_register_index, standard_metadata.ingress_global_timestamp);
+
     }
 
 
@@ -62,7 +102,6 @@ control MyIngress(inout headers hdr,
         // After that, we forget about it.
         hdr.ethernet.dstAddr = dstAddr;
     }
-
 
     action limit_rate() {
         our_meter.read(meta.meter_tag);
@@ -113,55 +152,6 @@ control MyIngress(inout headers hdr,
             drop(); return;
         }
 
-        if (!hdr.path.isValid()) {
-            // Here we encounter a packet coming directly from the host,
-            // i.e. the path header is not yet set. We enable it
-            // and query the forwarding_table for the correct path.
-
-            hdr.path.setValid();
-            hdr.path.protocol = hdr.ipv4.protocol;
-            hdr.ipv4.protocol = TYPE_PATH;
-
-            if (hdr.udp.isValid()) {
-                meta.classification = CLASS_UDP;
-                random(meta.hash, (bit<8>)0, (bit<8>)9);
-            } else if (hdr.tcp.isValid()) {
-                meta.classification = CLASS_TCP;
-                hash(meta.hash,
-                    HashAlgorithm.crc16,
-                    (bit<1>) 0,
-                    { hdr.ipv4.srcAddr,
-                        hdr.ipv4.dstAddr,
-                        hdr.tcp.srcPort,
-                        hdr.tcp.dstPort,
-                        hdr.ipv4.protocol
-                    }, (bit<8>) 10
-                );
-            }
-
-            forwarding_table.apply();
-        }
-
-        // Extract the next hop from the encoded hop list. Let's say the
-        // list looks like this: 0x123
-        // The last 4 bits (i.e. 0x3) denote the next hop, while the
-        // remaining 2x4 bits (i.e. 0x12) denote the hops that will
-        // follow after that, including the egress to the end host.
-        bit<9> next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
-        hdr.path.hops = (hdr.path.hops >> 4);
-        hdr.path.hop_count = hdr.path.hop_count - 1;
-
-        standard_metadata.egress_spec = next_hop;
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
-        if (hdr.path.hop_count == 0) {
-            // Once hop_count has reached 0, this means we're now at the
-            // last switch before the end host. Here, we simply remove
-            // our header and set the packet to the host.
-            hdr.ipv4.protocol = hdr.path.protocol;
-            hdr.path.setInvalid();
-        }
-
         // Rate-limiting of UDP packets
         if (hdr.udp.isValid()) {
 
@@ -190,11 +180,85 @@ control MyIngress(inout headers hdr,
                     drop(); return;
                 }
             }
-            // If meter is red we drop all
+            // If meter is red we drop all 
             else if (meta.meter_tag == 2) {
                 drop(); return;
             }
 
+        }
+
+        if (!hdr.path.isValid()) {
+            // Here we encounter a packet coming directly from the host,
+            // i.e. the path header is not yet set. We enable it
+            // and query the forwarding_table for the correct path.
+
+            hdr.path.setValid();
+            hdr.path.protocol = hdr.ipv4.protocol;
+            hdr.ipv4.protocol = TYPE_PATH;
+
+            // Check if flow has been seen before by the src switch
+            recognise_flowlet();
+            meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
+
+            // check if inter-packet gap is > 100ms (for known flow) or flow unknown
+            if (((meta.flowlet_time_diff > FLOWLET_TIMEOUT) && (meta.f_hop_count_saved != 0)) || (meta.f_hop_count_saved == 0)) {
+
+                if (hdr.udp.isValid()) {
+                    meta.classification = CLASS_UDP;
+                    random(meta.hash, (bit<8>)0, (bit<8>)9);
+                } else if (hdr.tcp.isValid()) {
+                    meta.classification = CLASS_TCP;
+                    hash(meta.hash,
+                        HashAlgorithm.crc16,
+                        (bit<1>) 0,
+                        { hdr.ipv4.srcAddr,
+                            hdr.ipv4.dstAddr,
+                            hdr.tcp.srcPort,
+                            hdr.tcp.dstPort,
+                            hdr.ipv4.protocol
+                        }, (bit<8>) 10
+                    );
+                }
+
+                forwarding_table.apply();
+                hops_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hops);
+                hop_count_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hop_count);
+                dst_mac_addr_reg.write((bit<32>)meta.flowlet_register_index, hdr.ethernet.dstAddr);
+
+            }
+
+            // Flow is known to the src switch and no timeout
+            else {
+                // Read next hops saved for the specific flow
+                hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
+
+                hdr.path.hop_count = meta.f_hop_count_saved;
+
+                //Read dst MAC address
+                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>)meta.flowlet_register_index);
+            }
+
+
+        }
+
+        // Extract the next hop from the encoded hop list. Let's say the
+        // list looks like this: 0x123
+        // The last 4 bits (i.e. 0x3) denote the next hop, while the
+        // remaining 2x4 bits (i.e. 0x12) denote the hops that will
+        // follow after that, including the egress to the end host.
+        bit<9> next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
+        hdr.path.hops = (hdr.path.hops >> 4);
+        hdr.path.hop_count = hdr.path.hop_count - 1;
+
+        standard_metadata.egress_spec = next_hop;
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
+        if (hdr.path.hop_count == 0) {
+            // Once hop_count has reached 0, this means we're now at the
+            // last switch before the end host. Here, we simply remove
+            // our header and set the packet to the host.
+            hdr.ipv4.protocol = hdr.path.protocol;
+            hdr.path.setInvalid();
         }
     }
 }
