@@ -160,12 +160,6 @@ control MyIngress(inout headers hdr,
             // our header and set the packet to the host.
             hdr.ipv4.protocol = hdr.path.protocol;
             hdr.path.setInvalid();
-        } else {
-            drop(); return;
-        }
-
-        if (!hdr.ipv4.isValid()) {
-            drop(); return;
         }
 
         // Rate-limiting of UDP packets
