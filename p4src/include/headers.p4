@@ -98,7 +98,6 @@ struct metadata {
     bit<48> dst_mac_saved;
     bit<32> f_hops_saved;
     bit<8>  f_hop_count_saved;
-    bit<4>  classification;
     bit<32> meter_tag;
     bit<16> src_port;
     bit<16> dst_port;
