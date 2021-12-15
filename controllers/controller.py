@@ -81,10 +81,9 @@ class Controller(object):
             if self.graph.has_edge(src, dst):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
-                self.graph[src][dst]['capacity'] = round(
-                    (10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
-                cap = self.graph[src][dst]['capacity']
-                logging.info(f'[cap] {round(cap / (2 ** 20), 2)}')
+                cap = round((10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
+                self.graph[src][dst]['capacity'] = cap
+                logging.info(f'[cap]: {src}->{dst} {round(cap, 2)}')
 
     @staticmethod
     def load_topology():
