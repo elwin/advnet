@@ -330,11 +330,14 @@ class Controller(object):
             elif classification is Classification.UDP:
                 paths = list(itertools.islice(nx.shortest_simple_paths(self.graph, src, dst), k * 2))
                 max_weight = nx.path_weight(self.graph, paths[0], weight='weight') * DELAY_MULTIPLIER_THRESHOLD
-                paths = filter(lambda path: nx.path_weight(self.graph, path, weight='weight') <= max_weight, paths)
-                paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
-                paths = itertools.islice(paths, k)
+                paths = filter(lambda path: self.path_weight(path) <= max_weight, paths)
+                paths = sorted(paths, key=self.path_weight)
+                paths = list(itertools.islice(paths, k))
 
-                return [Selection(path=path, multiplier=1) for path in paths]
+                def multiplier(path):
+                    return 1 / (self.path_weight(path) ** 2)
+
+                return [Selection(path=path, multiplier=multiplier(path)) for path in paths]
             else:
                 raise Exception(f'invalid classification "{classification.name}"')
 
@@ -347,6 +350,10 @@ class Controller(object):
         ]
 
         return [Selection(path=path, multiplier=1) for path in paths]
+
+    def path_weight(self, path, weight='weight'):
+        return nx.path_weight(self.graph, path, weight=weight)
+
 
     @functools.lru_cache(maxsize=None)
     def node_to_node_port_num(self, src, dst):
