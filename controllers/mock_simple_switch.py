@@ -12,7 +12,6 @@ class SimpleSwitchThriftAPI:
         logging.info(f'[{self.thrift_port}] <table del> {table_name} {match_keys}')
         pass
 
-
     def table_set_default(self, table_name, action_name, action_params=[]):
         logging.info(f'[{self.thrift_port}] <table_set_default> {table_name} - {action_name} - {action_params}')
 
@@ -20,12 +19,16 @@ class SimpleSwitchThriftAPI:
         logging.info(f'[{self.thrift_port}] <reset state>')
 
     def table_add_match_only(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
-                  byts=None):
+                             byts=None):
         logging.info(f'[{self.thrift_port}] <table modify> {table_name} {action_name} {match_keys} {action_params}')
 
     def table_add(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
                   byts=None):
         logging.info(f'[{self.thrift_port}] <table add> {table_name} {action_name} {match_keys} {action_params}')
+
+    def table_modify_match(self, table_name, action_name, match_keys, action_params=[], prio=0, rates=None, pkts=None,
+                           byts=None):
+        logging.info(f'[{self.thrift_port}] <table modify> {table_name} {action_name} {match_keys} {action_params}')
 
     def counter_read(self, counter_name: str, index: int):
         self.bytes += 100
@@ -34,4 +37,3 @@ class SimpleSwitchThriftAPI:
 
     def register_write(self, register_name: str, index, value: int):
         logging.info(f'[{self.thrift_port}] [register_mod] setting {register_name}[{index}] -> {value}')
-

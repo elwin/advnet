@@ -15,10 +15,10 @@ import networkx as nx
 import networkx.algorithms.simple_paths
 from p4utils.utils.helper import load_topo
 
-from controllers.constraints import load_waypoints
-from controllers.mock_socket import MockSocket
-from controllers.smart_switch import SmartSwitch
-from controllers.utils import pairwise, time_function
+from constraints import load_waypoints
+from mock_socket import MockSocket
+from smart_switch import SmartSwitch
+from utils import pairwise, time_function
 
 try:
     from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
@@ -31,6 +31,7 @@ PATH_VARIATION = 10
 MIN_MONITOR_WAIT = 0.25
 MAX_RECOMPUTATION = 4
 DELAY_MULTIPLIER_THRESHOLD = 1.25
+INFINITY = 100000000
 
 
 class Classification(enum.Enum):
@@ -67,7 +68,7 @@ class Controller(object):
             if self.graph.has_edge(src, dst):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
-                self.graph[src][dst]['capacity'] = 10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8
+                self.graph[src][dst]['capacity'] = round(10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8)
                 cap = self.graph[src][dst]['capacity']
                 logging.info(f'[cap] {round(cap / (2 ** 20), 2)}')
 
@@ -171,8 +172,6 @@ class Controller(object):
                 via=wp_constraint.via if wp_constraint else None,
             )
 
-            costs = list(map(lambda x: nx.path_weight(self.graph, x, weight='weight'), paths))
-
             self.register_paths(src, dst, paths, Classification.UDP)
 
         for src in self.switches():
@@ -183,6 +182,7 @@ class Controller(object):
         self.connect_to_sockets()
         self.reset_states()
         self.initialize_link_monitoring()
+
         time_function(self.recompute_weights)
         time_function(self.recompute_paths)
 
@@ -239,7 +239,7 @@ class Controller(object):
                                    via: typing.Optional[str] = None, k: int = 4):
         paths = self.get_paths_between(classification, src, dst, via, k)
         paths = filter(lambda path: len(path) <= MAX_PATH_LENGTH, paths)
-        paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
+        # paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
         paths = list(paths)
 
         if len(paths) == 0:
@@ -249,17 +249,64 @@ class Controller(object):
 
             raise Exception(log)
 
-        return paths
+        return list(itertools.islice(paths, k))
+
+    def compute_remaining(self, src: str, residual: typing.Dict[str, typing.Dict[str, int]]):
+        flows = []
+        for next_hop, flow in residual[src].items():
+            if flow == 0:
+                continue
+
+            remaining = self.compute_remaining(next_hop, residual)
+
+            flows.extend([[src] + rest_path for rest_path in remaining])
+
+        return flows if len(flows) > 0 else [[src]]
+
+    def compute_best_flow(self, src: str, dst: str):
+        residual = nx.max_flow_min_cost(self.graph, src, dst)
+        flows = self.compute_remaining(src, residual)
+        for flow in flows:
+            if flow[-1] != dst:
+                raise Exception('flow path not complete')
+
+        def path_capacity(path: typing.List[str]):
+            cur_capacity = INFINITY
+            for _src, _dst in pairwise(path):
+                cur_capacity = min(cur_capacity, residual[_src][_dst])
+
+            if cur_capacity == INFINITY:
+                raise Exception('invalid capacity')
+
+            return cur_capacity
+
+        zipped = zip(flows, map(path_capacity, flows))
+        zipped = sorted(zipped, key=lambda x: x[1], reverse=True)
+        return list(zip(*zipped))
+
+    @staticmethod
+    def path_capacity(residual, path: typing.List[str]):
+        cur_capacity = INFINITY
+        for src, dst in pairwise(path):
+            cur_capacity = min(cur_capacity, residual[src][dst])
+
+        if cur_capacity == INFINITY:
+            raise Exception('invalid capacity')
+
+        return cur_capacity
 
     def get_paths_between(self, classification: Classification, src: str, dst: str, via: typing.Optional[str] = None,
                           k: int = 4):
         if via is None:
             if classification is Classification.TCP:
-                return itertools.islice(nx.edge_disjoint_paths(self.graph, src, dst), k)
+                paths, capacities = self.compute_best_flow(src, dst)
+
+                return paths
             elif classification is Classification.UDP:
                 paths = list(itertools.islice(nx.shortest_simple_paths(self.graph, src, dst), k * 2))
                 max_weight = nx.path_weight(self.graph, paths[0], weight='weight') * DELAY_MULTIPLIER_THRESHOLD
                 paths = filter(lambda path: nx.path_weight(self.graph, path, weight='weight') <= max_weight, paths)
+                paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
                 return itertools.islice(paths, k)
             else:
                 raise Exception(f'invalid classification "{classification.name}"')
