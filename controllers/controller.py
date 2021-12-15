@@ -252,7 +252,7 @@ class Controller(object):
                                    via: typing.Optional[str] = None, k: int = 4):
         paths = self.get_paths_between(classification, src, dst, via, k)
         paths = filter(lambda path: len(path.path) <= MAX_PATH_LENGTH, paths)
-        # paths = sorted(paths, key=lambda path: networkx.path_weight(self.graph, path, weight='weight'))
+        paths = sorted(paths)
         paths = list(paths)
 
         if len(paths) == 0:
