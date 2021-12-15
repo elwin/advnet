@@ -335,7 +335,7 @@ class Controller(object):
                 paths = list(itertools.islice(paths, k))
 
                 def multiplier(path):
-                    return 1 / (self.path_weight(path) ** 2)
+                    return 1 / (self.path_weight(path) ** 3)
 
                 return [Selection(path=path, multiplier=multiplier(path)) for path in paths]
             else:
