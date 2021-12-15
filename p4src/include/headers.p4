@@ -12,6 +12,7 @@ const bit<16> HEARTBEAT = 0x1234;
 // IPv4 Types
 const bit<8>  TYPE_TCP  = 6;
 const bit<8>  TYPE_UDP  = 17;
+const bit<8> TYPE_PATH  = 144;
 
 // Define constants
 #define PORT_WIDTH 32
@@ -76,33 +77,33 @@ header udp_t {
     bit<16> checksum;
 }
 
+header path_t {
+    bit<32> hops;
+    bit<8>  hop_count;
+    bit<8>  protocol;
+    bit<8>  padding;
+}
+
 
 // Instantiate metadata fields
 struct metadata {
-    bit<14> ecmp_hash;
-    bit<14> ecmp_group_id;
-    bit<32> current_queue_depth;
+    bit<8> hash;
+    bit<8> udp_rate_limit_id;
+    bit<13> flowlet_register_index;
     bit<48> flowlet_last_stamp;
     bit<48> flowlet_time_diff;
-    bit<13> flowlet_register_index;
     bit<16> flowlet_id;
-
-    bit<PORT_WIDTH> flow_egress;
-    bit<PORT_WIDTH> f_egress_saved;
-    bit<1>  flow_known;
-    bit<1>  linkState;
-    bit<PORT_WIDTH> lfa_flow_egress;
-    bit<1>  lfa_operating;
-
+    bit<4> classification;
+    bit<32> meter_tag;
 }
 
 // Instantiate packet headers
 struct headers {
     ethernet_t                      ethernet;
-    heartbeat_t                     heartbeat;
     ipv4_t                          ipv4;
+    path_t                          path;
+    heartbeat_t                     heartbeat;
     tcp_t                           tcp;
     udp_t                           udp;
-
 }
 

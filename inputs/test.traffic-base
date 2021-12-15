@@ -1,10 +1,22 @@
 src, dst, sport, dport, protocol, rate, size, duration, start_time
-#MAD_h0,BAR_h0,215,235,udp,10Mbps,,10,29
-AMS_h0,PAR_h0,1,13,tcp,, 10MB,,1
-PAR_h0,MAD_h0,2,14,tcp,, 10MB,,3
-LON_h0,BAR_h0,3,15,udp,10Mbps,,10,1
-AMS_h0,MAD_h0,4,16,tcp,, 10MB,,5
+#BAR_h0,MAD_h0,215,235,udp,5Mbps,,15,5
+#AMS_h0,PAR_h0,1,13,tcp,, 10MB,,1
+#PAR_h0,MAD_h0,2,14,tcp,, 10MB,,3
+#LON_h0,BAR_h0,3,15,udp,10Mbps,,10,1
+#AMS_h0,MAD_h0,4,16,tcp,, 10MB,,5
 #AMS_h0,PAR_h0,5,17,tcp,, 10MB,,20
 #PAR_h0,MAD_h0,6,18,tcp,, 10MB,,20
+AMS_h0,PAR_h0,1,13,tcp,, 10MB,,1
+PAR_h0,MAD_h0,2,14,tcp,, 10MB,,1
+LON_h0,BAR_h0,3,15,udp,10Mbps,,10,1
+AMS_h0,MAD_h0,4,16,tcp,, 10MB,,5
+AMS_h0,PAR_h0,5,17,tcp,, 10MB,,20
+PAR_h0,MAD_h0,6,18,tcp,, 10MB,,20
+LON_h0,BAR_h0,7,19,udp,10Mbps,,10,25
+AMS_h0,MAD_h0,8,20,tcp,, 10MB,,20
+AMS_h0,PAR_h0,9,21,tcp,, 10MB,,45
+PAR_h0,MAD_h0,10,22,tcp,, 10MB,,40
+LON_h0,BAR_h0,11,23,udp,10Mbps,,10,45
+AMS_h0,MAD_h0,12,24,tcp,, 10MB,,40
 
 
