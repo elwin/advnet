@@ -264,9 +264,11 @@ control MyIngress(inout headers hdr,
             // Flow is known to the src switch and no timeout
             else {
                 // Read next hops saved for the specific flow
-                hops_reg.read(hdr.path.hops, (bit<32>) meta.flowlet_register_index);
+                hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
                 hdr.path.hop_count = meta.f_hop_count_saved;
-                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>) meta.flowlet_register_index);
+
+                // Read dst MAC address
+                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>)meta.flowlet_register_index);
             }
 
 
@@ -281,7 +283,7 @@ control MyIngress(inout headers hdr,
 
         // Check if the chosen output link is available, 0 means link down, 1 means link up
         link_state.read(meta.linkState, (bit<32>)meta.next_hop);
-        
+
         // If link is down
         if (meta.linkState == 0 && hdr.tcp.isValid()) {
             alt_forwarding_table.apply();
@@ -294,7 +296,6 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = meta.next_hop;
         //rewrite_mac.apply();
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
 
         if (hdr.path.hop_count == 0) {
             // Once hop_count has reached 0, this means we're now at the
