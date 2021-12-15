@@ -9,9 +9,6 @@
 // My defines
 const bit<4> CLASS_TCP    = 1;
 const bit<4> CLASS_UDP    = 2;
-// My defines
-const bit<4> CLASS_TCP    = 1;
-const bit<4> CLASS_UDP    = 2;
 #define PORT_WIDTH 32
 #define REGISTER_SIZE 8192
 #define TIMESTAMP_WIDTH 48
@@ -66,7 +63,7 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.dstAddr = dstAddr;
     }
 
-    table forwarding_table {
+
     action limit_rate() {
         our_meter.read(meta.meter_tag);
     }
@@ -163,13 +160,8 @@ control MyIngress(inout headers hdr,
             // our header and set the packet to the host.
             hdr.ipv4.protocol = hdr.path.protocol;
             hdr.path.setInvalid();
-        }
-    }
-
-            else {
-                drop(); return;
-            }
-
+        } else {
+            drop(); return;
         }
 
         if (!hdr.ipv4.isValid()) {
@@ -209,56 +201,6 @@ control MyIngress(inout headers hdr,
                 drop(); return;
             }
 
-        }
-
-        if (!hdr.path.isValid()) {
-            // Here we encounter a packet coming directly from the host,
-            // i.e. the path header is not yet set. We enable it
-            // and query the forwarding_table for the correct path.
-
-            hdr.path.setValid();
-            hdr.path.protocol = hdr.ipv4.protocol;
-            hdr.ipv4.protocol = TYPE_PATH;
-
-            if (hdr.udp.isValid()) {
-                meta.classification = CLASS_UDP;
-                random(meta.hash, (bit<8>)0, (bit<8>)9);
-            } else if (hdr.tcp.isValid()) {
-                meta.classification = CLASS_TCP;
-                hash(meta.hash,
-                    HashAlgorithm.crc16,
-                    (bit<1>) 0,
-                    { hdr.ipv4.srcAddr,
-                        hdr.ipv4.dstAddr,
-                        hdr.tcp.srcPort,
-                        hdr.tcp.dstPort,
-                        hdr.ipv4.protocol
-                    }, (bit<8>) 10
-                );
-            }
-
-            forwarding_table.apply();
-        }
-
-        // Extract the next hop from the encoded hop list. Let's say the
-        // list looks like this: 0x123
-        // The last 4 bits (i.e. 0x3) denote the next hop, while the
-        // remaining 2x4 bits (i.e. 0x12) denote the hops that will
-        // follow after that, including the egress to the end host.
-        bit<9> next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
-        hdr.path.hops = (hdr.path.hops >> 4);
-        hdr.path.hop_count = hdr.path.hop_count - 1;
-
-        standard_metadata.egress_spec = next_hop;
-
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
-        if (hdr.path.hop_count == 0) {
-            // Once hop_count has reached 0, this means we're now at the
-            // last switch before the end host. Here, we simply remove
-            // our header and set the packet to the host.
-            hdr.ipv4.protocol = hdr.path.protocol;
-            hdr.path.setInvalid();
         }
     }
 }
