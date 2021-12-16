@@ -341,14 +341,19 @@ class Controller(object):
 
         idx = 0
         for selection in selections:
-            for _ in range(selection.multiplier):
+            for host in self.get_hosts_connected_to(dst):
+                egress_list_encoded, egress_list_count = self.get_encoded_egress(selection.path, host)
+                host_ip = self.get_host_ip_with_subnet(host)
+                host_mac = self.get_host_mac(host)
 
-                for host in self.get_hosts_connected_to(dst):
-                    egress_list_encoded, egress_list_count = self.get_encoded_egress(selection.path, host)
+                self.controllers[src].table_add(
+                    table_name='path_state',
+                    action_name='do_nothing',
+                    match_keys=[egress_list_encoded],
+                    action_params=[],
+                )
 
-                    host_ip = self.get_host_ip_with_subnet(host)
-                    host_mac = self.get_host_mac(host)
-
+                for _ in range(selection.multiplier):
                     self.controllers[src].table_add(
                         table_name='forwarding_table',
                         action_name='set_path',
