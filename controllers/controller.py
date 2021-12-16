@@ -361,7 +361,7 @@ class Controller(object):
                         action_params=[host_mac, egress_list_encoded, str(egress_list_count)]
                     )
 
-                idx += 1
+                    idx += 1
 
     def get_encoded_egress(self, path, host) -> typing.Tuple[str, int]:
         complete_path = path + [host]
