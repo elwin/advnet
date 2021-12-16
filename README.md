@@ -38,11 +38,11 @@ architecture).
 ### Alkinoos Sarioglou
 
 Kept saying "grüezi mitenand" and provided good music for the background.
-But also fought the fight against P4 and won! Contributed to solving the problem of traffic engineering by rate limiting
+Also fought the fight with P4 and won! Contributed to solving the problem of traffic engineering by rate limiting
 UDP traffic.
 
 ### Elwin Stephan
 
 A master in git, lost a day's work in code by showing off.
-But also mainly wrote controller code, contributed the idea for storing the path segments in the header and the idea
+Also mainly wrote controller code, contributed the idea for storing the path segments in the header and the idea
 to statically compute a number of best paths per (source, destination) pair.
