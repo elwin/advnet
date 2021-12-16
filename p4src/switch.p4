@@ -70,7 +70,6 @@ control MyIngress(inout headers hdr,
 
     action recognise_flowlet() {
         // Recognise flowlet
-
         // For TCP, set appropriate port numbers
         if (hdr.tcp.isValid()) {
             meta.src_port = hdr.tcp.srcPort;
@@ -96,6 +95,9 @@ control MyIngress(inout headers hdr,
 
         //Read previous hop count saved
         hop_count_reg.read(meta.f_hop_count_saved, (bit<32>)meta.flowlet_register_index);
+
+        // Read next hops (path) saved for the specific flow
+        hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
 
         //Read previous time stamp
         flowlet_time_stamp_reg.read(meta.flowlet_last_stamp, (bit<32>)meta.flowlet_register_index);
@@ -123,6 +125,16 @@ control MyIngress(inout headers hdr,
     action limit_rate() {
         // Read the colour of the meter
         our_meter.read(meta.meter_tag);
+    }
+
+    action do_nothing() {
+        // empty function
+    }
+
+    action revoke_path() {
+        // path is not valid anymore
+        // reset path to dst
+        meta.f_hop_count_saved = 0;
     }
 
     // action rewriteMac(macAddr_t dstAddr){
@@ -185,6 +197,18 @@ control MyIngress(inout headers hdr,
         }
         size = 1024;
         default_action = drop;
+    }
+
+    table path_state {
+        key = {
+            hdr.path.hops: exact;
+        }
+        actions = {
+            do_nothing;
+            revoke_path;
+        }
+        size = 1024;
+        default_action = revoke_path;
     }
 
     // Table that sets the correct dst MAC address depending on the next hop
@@ -283,6 +307,12 @@ control MyIngress(inout headers hdr,
             recognise_flowlet();
             meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
 
+            // Flow is known
+            if (meta.f_hop_count_saved != 0) {
+                // Check if path is still valid
+                path_state.apply();
+            }
+
             // check if inter-packet gap is > 100ms (for known flow) or flow unknown
             if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || meta.f_hop_count_saved == 0) {
 
@@ -316,9 +346,8 @@ control MyIngress(inout headers hdr,
 
             // Flow is known to the src switch and no timeout
             else {
-                // Read next hops (path) and the hop count saved for the specific flow
-                hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
 
+                // Save hop count in the header
                 hdr.path.hop_count = meta.f_hop_count_saved;
 
                 //Read dst MAC address
