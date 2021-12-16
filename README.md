@@ -22,16 +22,12 @@ to link failures, we pre-compute alternative paths on each switch to all destina
 fail. This allows us to switch to an alternative path (that might not be globally optimal) within 100ms.
 
 Load balancing happens by keeping a set of multiple paths for each source/destination pair, one of which is randomly
-selected on a per-packet (UDP) or per-flowlet (TCP) basis.
+selected (with a probability dependant on how optimal it is) on a per-packet (UDP) or per-flowlet (TCP) basis.
 
 The paths for UDP are computed by minimizing for delay and hop count. For TCP, paths are computed by maximizing for
 available bandwidth.
 
 ## Individual Contributions
-
-In this section, note down 1 or 2 sentences *per team member* outlining everyone's contribution to the project. We want
-to see that everybody contributed, but you don't need to get into fine details. For example, write who contributed to
-which feature of your solution, but do *not* write who implemented a particular function.
 
 ### Maša Nešić
 
