@@ -13,7 +13,6 @@ import time
 import typing
 
 import networkx as nx
-import networkx.algorithms.simple_paths
 from p4utils.utils.helper import load_topo
 
 from constraints import load_waypoints
@@ -82,6 +81,7 @@ class Controller(object):
                 self.graph[src][dst]['delay'] = self.compute_weight(src, dst)
                 self.graph[src][dst]['weight'] = self.graph[src][dst]['delay']
                 cap = round((10.0 * 2 ** 20 - self.get_bandwidth(src, dst)[0] * 8) / 2 ** 20)
+                cap = max(cap, 1)
                 self.graph[src][dst]['capacity'] = cap
                 logging.info(f'[cap]: {src}->{dst} {round(cap, 2)}')
 
@@ -175,10 +175,9 @@ class Controller(object):
 
         rates = []
         burst_size = 700000
-        rates.append( (0.125 * (bw/2), burst_size) )
-        rates.append( (0.125 * bw, burst_size) )
+        rates.append((0.125 * (bw / 2), burst_size))
+        rates.append((0.125 * bw, burst_size))
         return rates
-
 
     # Set meter rates depending on bandwidth
     def set_direct_meter_bandwidth(self, sw_name, meter_name, handle, bw):
@@ -193,7 +192,7 @@ class Controller(object):
         """
 
         rates = self.get_meter_rates_from_bw(bw)
-        self.controllers[sw_name].api.meter_set_rates(meter_name = meter_name, index = handle, rates = rates)
+        self.controllers[sw_name].api.meter_set_rates(meter_name=meter_name, index=handle, rates=rates)
 
     # Initialize meters depending on port number
     def initialize_meters(self, src_sw, bw0, bw1, bw2, bw3, bw4):
@@ -225,7 +224,6 @@ class Controller(object):
             self.controllers[src_sw].api.register_write('dst_mac_addr_reg', [0, 1023], 0)
             self.controllers[src_sw].api.register_write('flowlet_time_stamp_reg', [0, 1023], 0)
 
-
     def get_bandwidth(self, src, dst):
         link_bw = self.last_measurements[(src, dst)]
 
@@ -256,6 +254,35 @@ class Controller(object):
         for src in self.switches():
             self.controllers[src].apply()
 
+    def compute_alternative_paths(self):
+        for src, dst in itertools.permutations(self.switches(), 2):
+
+            for neighbor in self.topology.get_neighbors(src):
+                if not self.topology.isSwitch(neighbor):
+                    continue
+
+                edge = self.graph[src][neighbor]
+                self.graph.remove_edge(src, neighbor)
+                failure_egress = self.get_egress_port(src, neighbor)
+                try:
+                    path = self.get_paths_between(Classification.UDP, src, dst, k=1)[0]
+
+                    for host in self.topology.get_hosts_connected_to(dst):
+                        host_ip = self.get_host_ip_with_subnet(host)
+                        host_mac = self.get_host_mac(host)
+                        egress_list_encoded, egress_list_count = self.get_encoded_egress(path.path, host)
+
+                        self.controllers[src].api.table_add(
+                            table_name='alt_forwarding_table',
+                            action_name='set_path',
+                            match_keys=[str(failure_egress), str(host_ip)],
+                            action_params=[host_mac, egress_list_encoded, str(egress_list_count)],
+                        )
+                except nx.NetworkXNoPath:
+                    pass
+                finally:
+                    self.graph.add_edge(src, neighbor, **edge)
+
     def run(self):
         self.connect_to_switches()
         self.connect_to_sockets()
@@ -265,6 +292,7 @@ class Controller(object):
         self.initialize_registers()
 
         time_function(self.recompute_weights)
+        time_function(self.compute_alternative_paths)
         time_function(self.recompute_paths)
 
         last_monitor = time.time()
@@ -307,10 +335,7 @@ class Controller(object):
             for _ in range(selection.multiplier):
 
                 for host in self.get_hosts_connected_to(dst):
-                    complete_path = selection.path + [host]
-                    egress_list = list(reversed(self.get_egress_list(complete_path)))
-                    egress_list_encoded = self.convert_to_hex(egress_list)
-                    egress_list_count = len(egress_list)
+                    egress_list_encoded, egress_list_count = self.get_encoded_egress(selection.path, host)
 
                     host_ip = self.get_host_ip_with_subnet(host)
                     host_mac = self.get_host_mac(host)
@@ -323,6 +348,11 @@ class Controller(object):
                     )
 
                 idx += 1
+
+    def get_encoded_egress(self, path, host) -> typing.Tuple[str, int]:
+        complete_path = path + [host]
+        egress_list = list(reversed(self.get_egress_list(complete_path)))
+        return self.convert_to_hex(egress_list), len(egress_list)
 
     def get_paths_between_filtered(self, classification: Classification, src: str, dst: str,
                                    via: typing.Optional[str] = None, k: int = 4):
@@ -355,6 +385,9 @@ class Controller(object):
     def compute_best_flow(self, src: str, dst: str):
         residual = nx.max_flow_min_cost(self.graph, src, dst)
         flows = self.compute_remaining(src, residual)
+        flows = list(filter(lambda x: x[-1] == dst, flows))
+
+        # TODO: output warning
         for flow in flows:
             if flow[-1] != dst:
                 raise Exception('flow path not complete')
@@ -421,7 +454,6 @@ class Controller(object):
 
     def path_weight(self, path, weight='weight'):
         return nx.path_weight(self.graph, path, weight=weight)
-
 
     @functools.lru_cache(maxsize=None)
     def node_to_node_port_num(self, src, dst):
@@ -518,14 +550,25 @@ class Controller(object):
 
     def set_link_up(self, src, dst):
         logging.info(f'[link] {src} -> {dst} is up')
-        self.links[(src, dst)] = True
-        self.graph.add_edge(src, dst)
+        self.set_link(src, dst, up=True)
 
     def set_link_down(self, src, dst):
         logging.info(f'[link] {src} -> {dst} is down')
-        self.links[(src, dst)] = False
-        if self.graph.has_edge(src, dst):
-            self.graph.remove_edge(src, dst)
+        self.set_link(src, dst, up=False)
+
+    def set_link(self, src, dst, up: True):
+        self.links[(src, dst)] = up
+        self.controllers[src].register_write(
+            register_name='link_state',
+            index=self.get_egress_port(src, dst),
+            value=1 if up else 0,
+        )
+
+        if up:
+            self.graph.add_edge(src, dst)
+        else:
+            if self.graph.has_edge(src, dst):
+                self.graph.remove_edge(src, dst)
 
 
 if __name__ == "__main__":
