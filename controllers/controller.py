@@ -178,8 +178,8 @@ class Controller(object):
 
         rates = []
         burst_size = BURST_SIZE
-        rates.append( (0.125 * (bw/COMMITTED_RATIO), burst_size) )
-        rates.append( (0.125 * bw, burst_size) )
+        rates.append((0.125 * (bw / COMMITTED_RATIO), burst_size))
+        rates.append((0.125 * bw, burst_size))
         return rates
 
     # Set meter rates depending on bandwidth
@@ -300,9 +300,9 @@ class Controller(object):
 
         last_monitor = time.time()
         last_recomputation = time.time()
-        while True:
-            time.sleep(max(last_monitor + MIN_MONITOR_WAIT - time.time(), 0))
-            last_monitor = time.time()
+
+        def recompute():
+            nonlocal last_recomputation
 
             should_recompute = time_function(self.monitor_rates)
             if time.time() - last_recomputation > MAX_RECOMPUTATION:
@@ -312,6 +312,12 @@ class Controller(object):
                 time_function(self.recompute_weights)
                 time_function(self.recompute_paths)
                 last_recomputation = time.time()
+
+        while True:
+            time.sleep(max(last_monitor + MIN_MONITOR_WAIT - time.time(), 0))
+            last_monitor = time.time()
+
+            time_function(recompute)
 
     @functools.lru_cache(maxsize=None)
     def get_hosts_connected_to(self, dst):
