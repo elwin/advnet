@@ -246,7 +246,7 @@ control MyIngress(inout headers hdr,
         }
 
         // Drop all traffic apart from IP
-        if (!hdr.ipv4.isValid()) {
+        if (!hdr.ipv4.isValid() || hdr.ipv4.ttl == 0) {
             drop(); return;
         }
 
