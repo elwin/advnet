@@ -32,6 +32,9 @@ MIN_MONITOR_WAIT = 0.25
 MAX_RECOMPUTATION = 4
 DELAY_MULTIPLIER_THRESHOLD = 1.25
 INFINITY = 100000000
+BURST_SIZE = 700000
+COMMITTED_RATIO = 2
+BANDWIDTH_PER_FLOW_UDP = 1.5
 
 
 class Classification(enum.Enum):
@@ -174,9 +177,9 @@ class Controller(object):
         """
 
         rates = []
-        burst_size = 700000
-        rates.append((0.125 * (bw / 2), burst_size))
-        rates.append((0.125 * bw, burst_size))
+        burst_size = BURST_SIZE
+        rates.append( (0.125 * (bw/COMMITTED_RATIO), burst_size) )
+        rates.append( (0.125 * bw, burst_size) )
         return rates
 
     # Set meter rates depending on bandwidth
@@ -213,7 +216,7 @@ class Controller(object):
         self.set_direct_meter_bandwidth(src_sw, 'our_meter', entry_handle, bw4)
 
     def initialize_all_sw_meters(self):
-        bw = 1.5
+        bw = BANDWIDTH_PER_FLOW_UDP
         for src_sw in self.switches():
             self.initialize_meters(src_sw, bw, bw, bw, bw, bw)
 
