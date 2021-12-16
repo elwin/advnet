@@ -35,12 +35,18 @@ which feature of your solution, but do *not* write who implemented a particular 
 
 ### Maša Nešić
 
-Brought food and kept the team happy
+Brought food and kept the team happy, helped bridge the gap between the controller world and the data plane.
+Also contributed the idea of load balancing algorithm and buffer acceptance (was very sad that queues don't work in this
+architecture).
 
 ### Alkinoos Sarioglou
 
-Mentioned p4 from time to time and kept saying grüezi mitenand
+Kept saying "grüezi mitenand" and provided good music for the background.
+But also fought the fight against P4 and won! Contributed to solving the problem of traffic engineering by rate limiting
+UDP traffic.
 
 ### Elwin Stephan
 
-Was here for fun and giggles
+A master in git, lost a day's work in code by showing off.
+But also mainly wrote controller code, contributed the idea for storing the path segments in the header and the idea
+to statically compute a number of best paths per (source, destination) pair.
