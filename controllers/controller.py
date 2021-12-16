@@ -90,7 +90,7 @@ class Controller(object):
 
     def install_macs(self):
         for src in self.switches():
-            for neighbor in self.topology.get_neighbors(src)
+            for neighbor in self.topology.get_neighbors(src):
                 mac = self.node_to_node_mac(neighbor, src)
                 port = self.node_to_node_port_num(src, neighbor)
                 self.controllers[src].table_add(
