@@ -88,6 +88,18 @@ class Controller(object):
                 self.graph[src][dst]['capacity'] = cap
                 logging.info(f'[cap]: {src}->{dst} {round(cap, 2)}')
 
+    def install_macs(self):
+        for src in self.switches():
+            for neighbor in self.topology.get_neighbors(src)
+                mac = self.node_to_node_mac(neighbor, src)
+                port = self.node_to_node_port_num(src, neighbor)
+                self.controllers[src].table_add(
+                    table_name='rewrite_mac',
+                    action_name='rewriteMac',
+                    match_keys=[str(port)],
+                    action_params=[str(mac)],
+                )
+
     @staticmethod
     def load_topology():
         topology = load_topo('topology.json')
@@ -293,6 +305,7 @@ class Controller(object):
         self.initialize_link_monitoring()
         self.initialize_all_sw_meters()
         self.initialize_registers()
+        self.install_macs()
 
         time_function(self.recompute_weights)
         time_function(self.compute_alternative_paths)

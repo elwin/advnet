@@ -114,12 +114,6 @@ control MyIngress(inout headers hdr,
         // as the number of hops.
         hdr.path.hops = hops;
         hdr.path.hop_count = hop_count;
-
-        // Here we cheat a bit: Instead of setting the MAC address of
-        // the next switch, we simply already set it to the MAC address
-        // of the end host (since this is the only one who cares).
-        // After that, we forget about it.
-        hdr.ethernet.dstAddr = dstAddr;
     }
 
     action limit_rate() {
@@ -137,11 +131,11 @@ control MyIngress(inout headers hdr,
         meta.f_hop_count_saved = 0;
     }
 
-    // action rewriteMac(macAddr_t dstAddr){
-           // Update the dst MAC address
-	//     hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
-    //     hdr.ethernet.dstAddr = dstAddr;
-    // }
+    action rewriteMac(macAddr_t dstAddr){
+        // Update the dst MAC address
+	    hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+        hdr.ethernet.dstAddr = dstAddr;
+    }
 
     // Forwarding table run only on the directly connected switch
     // of the sending host
@@ -214,17 +208,17 @@ control MyIngress(inout headers hdr,
     // Table that sets the correct dst MAC address depending on the next hop
     // Match key: egress port
     // Action: Sets the correct dst MAC address of the next hop
-    // table rewrite_mac {
-    //     key = {
-    //          meta.next_hop: exact;
-    //     }
-    //     actions = {
-    //         rewriteMac;
-    //         drop;
-    //     }
-    //     size = 512;
-    //     default_action = drop;
-    // }
+    table rewrite_mac {
+        key = {
+             meta.next_hop: exact;
+        }
+        actions = {
+            rewriteMac;
+            drop;
+        }
+        size = 512;
+        default_action = drop;
+    }
 
     apply {
         // Measure input traffic on the port
@@ -385,7 +379,9 @@ control MyIngress(inout headers hdr,
 
         // Set the egress port
         standard_metadata.egress_spec = meta.next_hop;
-        //rewrite_mac.apply();
+
+        rewrite_mac.apply();
+
         // Decrease ttl
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 
