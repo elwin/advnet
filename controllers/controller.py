@@ -93,7 +93,7 @@ class Controller(object):
             for neighbor in self.topology.get_neighbors(src):
                 mac = self.node_to_node_mac(neighbor, src)
                 port = self.node_to_node_port_num(src, neighbor)
-                self.controllers[src].table_add(
+                self.controllers[src].api.table_add(
                     table_name='rewrite_mac',
                     action_name='rewriteMac',
                     match_keys=[str(port)],
