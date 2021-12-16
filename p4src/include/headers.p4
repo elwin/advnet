@@ -101,6 +101,8 @@ struct metadata {
     bit<32> meter_tag;
     bit<16> src_port;
     bit<16> dst_port;
+    bit<1>  linkState;
+    bit<9>  next_hop;
 }
 
 // Instantiate packet headers

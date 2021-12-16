@@ -13,6 +13,7 @@ const bit<4> CLASS_UDP    = 2;
 #define REGISTER_SIZE 1024
 #define TIMESTAMP_WIDTH 48
 #define FLOWLET_TIMEOUT 48w27500
+#define N_PORTS 32
 
 
 /*************************************************************************
@@ -43,6 +44,9 @@ control MyIngress(inout headers hdr,
     register<bit<8>>(REGISTER_SIZE)               hop_count_reg;
     register<bit<48>>(REGISTER_SIZE)              dst_mac_addr_reg;
     register<bit<TIMESTAMP_WIDTH>>(REGISTER_SIZE) flowlet_time_stamp_reg;
+
+    // Register for checking the state of the output link
+    register<bit<1>>(N_PORTS) link_state;
 
 
     action drop() {
@@ -107,6 +111,11 @@ control MyIngress(inout headers hdr,
         our_meter.read(meta.meter_tag);
     }
 
+    // action rewriteMac(macAddr_t dstAddr){
+	//     hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+    //     hdr.ethernet.dstAddr = dstAddr;
+    // }
+
     table forwarding_table {
         key = {
             hdr.ipv4.dstAddr: lpm;
@@ -133,6 +142,31 @@ control MyIngress(inout headers hdr,
         meters = our_meter;
         default_action = drop;
     }
+
+    table alt_forwarding_table {
+        key = {
+            meta.next_hop: exact;
+            hdr.ipv4.dstAddr: lpm;
+        }
+        actions = {
+            set_path;
+            drop;
+        }
+        size = 1024;
+        default_action = drop;
+    }
+
+    // table rewrite_mac {
+    //     key = {
+    //          meta.next_hop: exact;
+    //     }
+    //     actions = {
+    //         rewriteMac;
+    //         drop;
+    //     }
+    //     size = 512;
+    //     default_action = drop;
+    // }
 
     apply {
         port_counter.count((bit<32>) standard_metadata.ingress_port);
@@ -201,7 +235,7 @@ control MyIngress(inout headers hdr,
             meta.flowlet_time_diff = standard_metadata.ingress_global_timestamp - meta.flowlet_last_stamp;
 
             // check if inter-packet gap is > 100ms (for known flow) or flow unknown
-            if (((meta.flowlet_time_diff > FLOWLET_TIMEOUT) && (meta.f_hop_count_saved != 0)) || (meta.f_hop_count_saved == 0)) {
+            if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || meta.f_hop_count_saved == 0) {
 
                 if (hdr.udp.isValid()) {
                     meta.classification = CLASS_UDP;
@@ -230,12 +264,9 @@ control MyIngress(inout headers hdr,
             // Flow is known to the src switch and no timeout
             else {
                 // Read next hops saved for the specific flow
-                hops_reg.read(hdr.path.hops, (bit<32>)meta.flowlet_register_index);
-
+                hops_reg.read(hdr.path.hops, (bit<32>) meta.flowlet_register_index);
                 hdr.path.hop_count = meta.f_hop_count_saved;
-
-                //Read dst MAC address
-                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>)meta.flowlet_register_index);
+                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>) meta.flowlet_register_index);
             }
 
 
@@ -246,12 +277,24 @@ control MyIngress(inout headers hdr,
         // The last 4 bits (i.e. 0x3) denote the next hop, while the
         // remaining 2x4 bits (i.e. 0x12) denote the hops that will
         // follow after that, including the egress to the end host.
-        bit<9> next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
+        meta.next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
+
+        // Check if the chosen output link is available, 0 means link down, 1 means link up
+        link_state.read(meta.linkState, (bit<32>)meta.next_hop);
+        
+        // If link is down
+        if (meta.linkState == 0 && hdr.tcp.isValid()) {
+            alt_forwarding_table.apply();
+            meta.next_hop = (bit<9>) (hdr.path.hops - ((hdr.path.hops >> 4) << 4));
+        }
+
         hdr.path.hops = (hdr.path.hops >> 4);
         hdr.path.hop_count = hdr.path.hop_count - 1;
 
-        standard_metadata.egress_spec = next_hop;
+        standard_metadata.egress_spec = meta.next_hop;
+        //rewrite_mac.apply();
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
 
         if (hdr.path.hop_count == 0) {
             // Once hop_count has reached 0, this means we're now at the

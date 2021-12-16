@@ -37,3 +37,6 @@ class SimpleSwitchThriftAPI:
 
     def register_write(self, register_name: str, index, value: int):
         logging.info(f'[{self.thrift_port}] [register_mod] setting {register_name}[{index}] -> {value}')
+
+    def meter_set_rates(self, meter_name: str, index: int, rates: int):
+        logging.info(f'[{self.thrift_port}] [meter_set_rates] setting {meter_name}[{index}] -> {rates}')
