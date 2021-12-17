@@ -26,7 +26,7 @@ We load-balance by keeping a set of multiple paths for each source/destination p
 The paths for UDP are computed by minimizing for delay and hop count. For TCP, paths are computed by maximizing for
 available bandwidth.
 
-Rate-limiting allows peak 1.75 Mbps for flows of each port range (committed 0.875 Mbps). For yellow meter color, we drop
+Rate-limiting allows peak 1.75 Mbps for UDP flows of each port range (committed 0.875 Mbps). For yellow meter color, we drop
 the packet with a probability of 30% and for red, we drop every time.
 
 ## Individual Contributions
