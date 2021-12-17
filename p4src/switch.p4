@@ -253,6 +253,9 @@ control MyIngress(inout headers hdr,
             drop(); return;
         }
 
+        // Decrease ttl
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
         // Rate-limiting of UDP packets
         if (hdr.udp.isValid()) {
 
@@ -301,10 +304,12 @@ control MyIngress(inout headers hdr,
             // Here we encounter a packet coming directly from the host,
             // i.e. the path header is not yet set. We enable it
             // and query the forwarding_table for the correct path.
-
-            // ADD COMMENT ON WHY WE SWAP THE PROTOCOL
-
             hdr.path.setValid();
+
+            // Also, swap the the protocol identifier in the IPv4 packet
+            // so the parser in the next switch knows about our header
+            // and correctly parsers it. The last switch forwarding it
+            // to the end-host will swap it back to the initial protocol.
             hdr.path.protocol = hdr.ipv4.protocol;
             hdr.ipv4.protocol = TYPE_PATH;
 
@@ -321,42 +326,31 @@ control MyIngress(inout headers hdr,
             // Check if inter-packet gap is > 100ms (for known flow) or flow unknown
             if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || meta.f_hop_count_saved == 0) {
 
-                // Compute hash for UDP and TCP separately
-                // ADD MORE COMMENTS HERE ON THE FUNCTIONALITY
                 if (hdr.udp.isValid()) {
                     meta.classification = CLASS_UDP;
-                    random(meta.hash, (bit<8>) 0, (bit<8>) PATH_MULTIPLIER);
                 } else if (hdr.tcp.isValid()) {
                     meta.classification = CLASS_TCP;
-                    hash(meta.hash,
-                        HashAlgorithm.crc16,
-                        (bit<1>) 0,
-                        { hdr.ipv4.srcAddr,
-                            hdr.ipv4.dstAddr,
-                            hdr.tcp.srcPort,
-                            hdr.tcp.dstPort,
-                            hdr.ipv4.protocol
-                        }, (bit<8>) PATH_MULTIPLIER
-                    );
                 }
 
-                // Apply forwarding table
+                // Compute hash for UDP and TCP to select a random path
+                // For TCP, we will remember this path later to avoid
+                // having different delays and thus, reordering.
+                random(meta.hash, (bit<8>) 0, (bit<8>) PATH_MULTIPLIER);
+
+                // Select path
                 forwarding_table.apply();
+
                 // Save the path and the hop count
-                hops_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hops);
-                hop_count_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hop_count);
+                hops_reg.write((bit<32>) meta.flowlet_register_index, hdr.path.hops);
+                hop_count_reg.write((bit<32>) meta.flowlet_register_index, hdr.path.hop_count);
 
             }
 
             // Flow is known to the src switch and no timeout
             else {
-
                 // Save hop count in the header
                 hdr.path.hop_count = meta.f_hop_count_saved;
-
             }
-
-
         }
 
         // Every switch on the path performs the following
@@ -370,7 +364,7 @@ control MyIngress(inout headers hdr,
         // Check if the chosen output link is available
         // 0 means link down
         // 1 means link up
-        link_state.read(meta.linkState, (bit<32>)meta.next_hop);
+        link_state.read(meta.linkState, (bit<32>) meta.next_hop);
         
         // If link is down and TCP traffic
         if((meta.linkState == 0) && hdr.tcp.isValid()) {
@@ -392,16 +386,12 @@ control MyIngress(inout headers hdr,
         // Write the correct dst MAC address depending on the egress port
         egress_to_mac.apply();
 
-        // Decrease ttl
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
-
         if (hdr.path.hop_count == 0) {
             // Once hop_count has reached 0, this means we're now at the
-            // last switch before the destination host. Here, we simply remove
-            // our header and send the packet to the host.
-
-            // ADD EXTRA COMMENT ON SWAP OF THE PROTOCOLS AGAIN
+            // last switch before the destination host. Here, we first swap
+            // back the original protocol (from TYPE_PATH to what was here
+            // initially, usually TYPE_TCP or TYPE_UDP) and remove the
+            // path header before forwarding it to the host.
             hdr.ipv4.protocol = hdr.path.protocol;
             hdr.path.setInvalid();
         }
