@@ -12,7 +12,7 @@ const bit<16> HEARTBEAT = 0x1234;
 // IPv4 Types
 const bit<8>  TYPE_TCP  = 6;
 const bit<8>  TYPE_UDP  = 17;
-const bit<8>  TYPE_PATH  = 144;
+const bit<8>  TYPE_PATH = 144;
 
 // Define constants
 #define PORT_WIDTH 32
@@ -86,34 +86,33 @@ header udp_t {
 
 // PATH header
 // Includes:
-//           a) hops: includes the egress ports that the switches in the path will read to forward the traffic
-//                    e.g. if the source switch creates a path with hops = 0x231, the following switches will 
-//                    follow the egress ports 2, 3, 1 respectively just by reading this field
-//           b) hop_count: the count of the hops on the path
-//           c) protocol: ADD EXPLANATION HERE
-//           d) padding: padding fields
+//   a) hops: includes the egress ports that the switches in the path will read to forward the traffic
+//            e.g. if the source switch creates a path with hops = 0x231, the following switches will
+//            follow the egress ports 2, 3, 1 respectively just by reading this field
+//   b) hop_count: the count of the hops on the path
+//   c) protocol: here we temporarily store the actual protocol of the payload in IPv4 to
+//                eventually write it back when we remove this header
 header path_t {
     bit<32> hops;
     bit<8>  hop_count;
     bit<8>  protocol;
-    bit<8>  padding;
 }
 
 
 // Instantiate metadata fields
 struct metadata {
-    bit<8>  hash; // hash to select path on the forwarding_table
-    bit<4>  classification; // UDP or TCP traffic
-    bit<8>  udp_rate_limit_id; // Map port ranges to an ID
+    bit<8>  hash;                   // hash to select path on the forwarding_table
+    bit<4>  classification;         // UDP or TCP traffic
+    bit<8>  udp_rate_limit_id;      // Map port ranges to an ID
     bit<13> flowlet_register_index; // Hash result of the flow tuple
-    bit<48> flowlet_last_stamp; // Time stamp of flow
-    bit<48> flowlet_time_diff;  // Time difference between current time and time stamp
-    bit<8>  f_hop_count_saved;  // Read previous hop count saved
-    bit<32> meter_tag; // Colour of the direct meter
-    bit<16> src_port; // Src port for TCP or UDP
-    bit<16> dst_port; // Dst port for TCP or UDP
-    bit<1>  linkState; // State of link
-    bit<9>  next_hop; // Egress port chosen to forward the packet to
+    bit<48> flowlet_last_stamp;     // Time stamp of flow
+    bit<48> flowlet_time_diff;      // Time difference between current time and time stamp
+    bit<8>  f_hop_count_saved;      // Read previous hop count saved
+    bit<32> meter_tag;              // Colour of the direct meter
+    bit<16> src_port;               // Src port for TCP or UDP
+    bit<16> dst_port;               // Dst port for TCP or UDP
+    bit<1>  linkState;              // State of link
+    bit<9>  next_hop;               // Egress port chosen to forward the packet to
 }
 
 // Instantiate packet headers

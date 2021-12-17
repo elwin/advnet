@@ -236,7 +236,7 @@ class Controller(object):
     def initialize_registers(self):
         """Initialize all register to 0."""
         for src in self.switches():
-            for register_name in ['hops_reg', 'hop_count_reg', 'dst_mac_addr_reg', 'flowlet_time_stamp_reg']:
+            for register_name in ['hops_reg', 'hop_count_reg', 'flowlet_time_stamp_reg']:
                 self.controllers[src].api.register_write(
                     register_name=register_name,
                     index=[0, 1023],
@@ -259,14 +259,13 @@ class Controller(object):
 
                     for host in self.topology.get_hosts_connected_to(dst):
                         host_ip = self.get_host_ip_with_subnet(host)
-                        host_mac = self.get_host_mac(host)
                         egress_list_encoded, egress_list_count = self.get_encoded_egress(path.path, host)
 
                         self.controllers[src].api.table_add(
                             table_name='alt_forwarding_table',
                             action_name='set_path',
                             match_keys=[str(failure_egress), str(host_ip)],
-                            action_params=[host_mac, egress_list_encoded, str(egress_list_count)],
+                            action_params=[egress_list_encoded, str(egress_list_count)],
                         )
                 except nx.NetworkXNoPath:
                     pass

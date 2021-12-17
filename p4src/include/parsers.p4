@@ -68,7 +68,6 @@ parser MyParser(packet_in packet,
 
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
-
         // Parsed headers have to be added again into the packet.
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);

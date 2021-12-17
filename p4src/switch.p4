@@ -281,23 +281,23 @@ control MyIngress(inout headers hdr,
             else {
                 meta.udp_rate_limit_id = 4;
             }
+
             // Read the colour of the meter
             rate_limiting.apply();
 
-            /* If meter is yellow we randomly drop with a probability*/
-            if (meta.meter_tag == 1)
-            {
-                // Drop with a probability of 30%
-                random(seed, (bit<7>)0, (bit<7>)100);
+            // If meter is yellow we randomly drop with a probability
+            if (meta.meter_tag == 1) {
+                // Drop with a probability of PROB_DROP_UDP
+                random(seed, (bit<7>) 0, (bit<7>) 100);
                 if (seed <= PROB_DROP_UDP) {
                     drop(); return;
                 }
             }
+
             // If meter is red we drop all 
             else if (meta.meter_tag == 2) {
                 drop(); return;
             }
-
         }
 
         if (!hdr.path.isValid()) {
