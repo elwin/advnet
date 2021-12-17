@@ -9,6 +9,7 @@ class Waypoint:
     dst: str
     via: str
 
+
 def load_waypoints(path: str) -> typing.List[Waypoint]:
     waypoints: typing.List[Waypoint] = []
     with open(path) as csv_file:

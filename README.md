@@ -35,7 +35,7 @@ the packet with a probability of 30% and for red, we drop every time.
 
 Brought food and kept the team happy, helped bridge the gap between the controller world and the data plane. Also
 contributed the idea of load balancing algorithm and buffer acceptance (was very sad that queues don't work in this
-architecture). Poster creator.
+architecture), poster creator.
 
 ### Alkinoos Sarioglou
 
@@ -44,6 +44,6 @@ Contributed to solving the problem of traffic engineering by rate limiting UDP t
 
 ### Elwin Stephan
 
-A master in git, lost a day's work in code by showing off. Also mainly wrote controller code, contributed the idea for
+A master in git, lost a day's work in code by showing off. Also wrote some controller code, contributed the idea for
 storing the path segments in the header and the idea to statically compute a number of best paths per (source,
 destination) pair.

@@ -2,6 +2,7 @@ import logging
 
 
 class MockSocket:
+    """Mock implementation of a socket to ease testing."""
     def __init__(self):
         self.address = None
 

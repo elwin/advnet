@@ -9,13 +9,13 @@
 // My defines
 const bit<4> CLASS_TCP    = 1;
 const bit<4> CLASS_UDP    = 2;
-#define PATH_WIDTH 32
-#define REGISTER_SIZE 1024
-#define TIMESTAMP_WIDTH 48
-#define FLOWLET_TIMEOUT 48w27500
-#define N_PORTS 32
-#define PROB_DROP_UDP 30
-#define NUMBER_TCP_TABLE_ENTRIES 10
+#define PATH_WIDTH          32
+#define REGISTER_SIZE       1024
+#define TIMESTAMP_WIDTH     48
+#define FLOWLET_TIMEOUT     48w27500
+#define N_PORTS             32
+#define PROB_DROP_UDP       30
+#define PATH_MULTIPLIER     10
 
 
 /*************************************************************************
@@ -108,7 +108,7 @@ control MyIngress(inout headers hdr,
     }
 
 
-    action set_path(macAddr_t dstAddr, bit<32> hops, bit<8> hop_count) {
+    action set_path(bit<32> hops, bit<8> hop_count) {
         // This action is only called on the first switch after the
         // sending host. Here, we set the encoded hops list as well
         // as the number of hops.
@@ -131,7 +131,7 @@ control MyIngress(inout headers hdr,
         meta.f_hop_count_saved = 0;
     }
 
-    action rewriteMac(macAddr_t dstAddr){
+    action rewrite_mac(macAddr_t dstAddr){
         // Update the dst MAC address
 	    hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
@@ -208,12 +208,12 @@ control MyIngress(inout headers hdr,
     // Table that sets the correct dst MAC address depending on the next hop
     // Match key: egress port
     // Action: Sets the correct dst MAC address of the next hop
-    table rewrite_mac {
+    table egress_to_mac {
         key = {
              meta.next_hop: exact;
         }
         actions = {
-            rewriteMac;
+            rewrite_mac;
             drop;
         }
         size = 512;
@@ -314,7 +314,7 @@ control MyIngress(inout headers hdr,
                 // ADD MORE COMMENTS HERE ON THE FUNCTIONALITY
                 if (hdr.udp.isValid()) {
                     meta.classification = CLASS_UDP;
-                    random(meta.hash, (bit<8>)0, (bit<8>)9);
+                    random(meta.hash, (bit<8>)0, (bit<8>) PATH_MULTIPLIER);
                 } else if (hdr.tcp.isValid()) {
                     meta.classification = CLASS_TCP;
                     hash(meta.hash,
@@ -325,7 +325,7 @@ control MyIngress(inout headers hdr,
                             hdr.tcp.srcPort,
                             hdr.tcp.dstPort,
                             hdr.ipv4.protocol
-                        }, (bit<8>) NUMBER_TCP_TABLE_ENTRIES
+                        }, (bit<8>) PATH_MULTIPLIER
                     );
                 }
 
@@ -380,7 +380,7 @@ control MyIngress(inout headers hdr,
         // Set the egress port
         standard_metadata.egress_spec = meta.next_hop;
 
-        rewrite_mac.apply();
+        egress_to_mac.apply();
 
         // Decrease ttl
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;

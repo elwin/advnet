@@ -10,6 +10,7 @@ except ModuleNotFoundError:
 
 @dataclass(init=True, frozen=True)
 class TableAdd:
+    """Represents a table add entry"""
     table_name: str
     action_name: str
     match_keys: typing.Tuple
@@ -19,37 +20,27 @@ class TableAdd:
         return f'<table_add> {self.table_name} / {self.action_name} -> {list(self.match_keys)}, {list(self.action_params)}'
 
 
-@dataclass(init=True, frozen=True)
-class TableSetDefault:
-    table_name: str
-    action_name: str
-
-    def __str__(self):
-        return f'<table_set_default> {self.table_name} / {self.action_name}'
-
-
-@dataclass(init=True, frozen=True)
-class RegisterSet:
-    register_name: str
-    index: int
-    value: int
-
-    def __str__(self):
-        return f'<table_set_default> {self.register_name}[{self.index}] -> {self.value}'
-
-
 class Configuration:
-    table_set_default: typing.List[TableSetDefault]
-    table_add: typing.List[TableAdd]
-    register_set: typing.List[RegisterSet]
+    """Represents a configuration consisting of table add entries that should be part of the switch"""
 
     def __init__(self):
-        self.table_set_default = []
-        self.table_add = []
-        self.table_add_match_only = []
+        """
+        self.table_add corresponds to the set of table entries to be added.
+        self.table_add_match_only is the same as self.table_add but
+        with action_params cleared - used for in-place updates.
+        """
+        self.table_add = set()
+        self.table_add_match_only = set()
 
 
 class SmartSwitch:
+    """
+    Collects table entries that should be added but doesn't forward them
+    to the switch yet. Only after calling apply() the entries are
+    compared to what previously has been written to the switch,
+    and only the difference is actually forwarded.
+    """
+
     def __init__(self, api, name: str):
         self.api = api
         self.name = name
@@ -57,44 +48,32 @@ class SmartSwitch:
         self.old_config = Configuration()
         self.new_config = Configuration()
 
-    def table_set_default(self, table_name, action_name):
-        self.new_config.table_set_default.append(TableSetDefault(
-            table_name=table_name,
-            action_name=action_name,
-        ))
-        # self.new_config.table_set_default.append((table_name, action_name))
-        return self.api.table_set_default(table_name, action_name, [])
-
-    def reset_state(self):
-        return self.api.reset_state()
-
     def table_add(self, table_name, action_name, match_keys, action_params):
-        self.new_config.table_add.append(TableAdd(
+        """Collect a table entry to be added."""
+        self.new_config.table_add.add(TableAdd(
             table_name=table_name,
             action_name=action_name,
             match_keys=tuple(match_keys),
             action_params=tuple(action_params),
         ))
 
-        self.new_config.table_add_match_only.append(TableAdd(
+        self.new_config.table_add_match_only.add(TableAdd(
             table_name=table_name,
             action_name=action_name,
             match_keys=tuple(match_keys),
             action_params=(),
         ))
 
-        # return self.api.table_add(table_name, action_name, match_keys, action_params)
-
     def counter_read(self, counter_name: str, index: int):
+        """Read the counter value"""
         return self.api.counter_read(counter_name, index)
 
     def apply_table_add(self):
+        """Compute the difference between the old and new configuration and forward it to the switch."""
         adds: typing.Set[TableAdd] = set(self.new_config.table_add) - set(self.old_config.table_add)
         removes: typing.Set[TableAdd] = set(self.old_config.table_add_match_only) - set(
             self.new_config.table_add_match_only)
 
-        # TODO likely won't have to remove entries that are replaced
-        #  with new entries with the same table_name and match_keys
         for remove in removes:
             logging.info(f'[table_mod][{self.name}] removing {remove}')
             self.api.table_delete_match(remove.table_name, list(remove.match_keys))
@@ -124,6 +103,7 @@ class SmartSwitch:
                 )
 
     def register_write(self, register_name: str, index, value: int):
+        """Write a register value to the switch immediately."""
         logging.info(f'[register_mod][{self.name}] setting {register_name}[{index}] -> {value}')
         self.api.register_write(
             register_name=register_name,
@@ -131,24 +111,8 @@ class SmartSwitch:
             value=value,
         )
 
-    def apply_table_set_default(self):
-        adds: typing.Set[TableSetDefault] = set(self.new_config.table_set_default) - set(
-            self.old_config.table_set_default)
-        removes: typing.Set[TableSetDefault] = set(self.old_config.table_set_default) - set(
-            self.new_config.table_set_default)
-
-        for add in adds:
-            logging.info(f'[table_mod][{self.name}] adding {add}')
-            self.api.table_set_default(
-                add.table_name,
-                add.action_name,
-            )
-
-        for remove in removes:
-            raise Exception(f'cannot remove {remove}')
-
     def apply(self):
-        self.apply_table_set_default()
+        """Apply the difference between the old and new configuration to the switch and start a new configuration."""
         self.apply_table_add()
         self.old_config = self.new_config
         self.new_config = Configuration()
