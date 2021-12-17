@@ -11,6 +11,7 @@ parser MyParser(packet_in packet,
         transition parse_ethernet;
     }
 
+    // Parse Ethernet header
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType){
@@ -20,20 +21,13 @@ parser MyParser(packet_in packet,
         }
     }
 
-    state parse_path {
-        packet.extract(hdr.path);
-        transition select(hdr.path.protocol){
-            TYPE_TCP: parse_tcp;
-            TYPE_UDP: parse_udp;
-            default: accept;
-        }
-    }
-
+    // Parse Heartbeat header
     state parse_heartbeat {
         packet.extract(hdr.heartbeat);
         transition accept;
     }
 
+    // Parse IPv4 header
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
         transition select(hdr.ipv4.protocol) {
@@ -44,15 +38,28 @@ parser MyParser(packet_in packet,
         }
     }
 
+    // Parse PATH header
+    state parse_path {
+        packet.extract(hdr.path);
+        transition select(hdr.path.protocol){
+            TYPE_TCP: parse_tcp;
+            TYPE_UDP: parse_udp;
+            default: accept;
+        }
+    }
+
+    // Parse TCP header
     state parse_tcp {
         packet.extract(hdr.tcp);
         transition accept;
     }
 
+    // Parse UDP header
     state parse_udp {
         packet.extract(hdr.udp);
         transition accept;
     }
+
 }
 
 /*************************************************************************

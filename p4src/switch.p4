@@ -46,8 +46,6 @@ control MyIngress(inout headers hdr,
     register<bit<PATH_WIDTH>>(REGISTER_SIZE)      hops_reg;
     // Registers to save hop count of known flows
     register<bit<8>>(REGISTER_SIZE)               hop_count_reg;
-    // Registers to save dst MAC addresses of next hops for known flows
-    register<bit<48>>(REGISTER_SIZE)              dst_mac_addr_reg;
     // Registers to save timestamps for known flows
     register<bit<TIMESTAMP_WIDTH>>(REGISTER_SIZE) flowlet_time_stamp_reg;
 
@@ -131,16 +129,15 @@ control MyIngress(inout headers hdr,
         meta.f_hop_count_saved = 0;
     }
 
-    action rewrite_mac(macAddr_t dstAddr){
+    action rewrite_mac(macAddr_t dstAddr) {
         // Update the dst MAC address
 	    hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
     }
 
-    // Forwarding table run only on the directly connected switch
-    // of the sending host
+    // Forwarding table run only on the directly connected switch of the sending host
     // Matches key: dst MAC address, the hash of the flow and the type of traffic (TCP, UDP)
-    // Action: Creates the path that the traffic will follow until the destination
+    // Action: Creates the path that the traffic will follow until the destination switch
     table forwarding_table {
         key = {
             hdr.ipv4.dstAddr: lpm;
@@ -157,7 +154,7 @@ control MyIngress(inout headers hdr,
 
     // Table that performs rate-limiting of UDP traffic
     // Match key: range of ports
-    // For ports 1-100: meta.udp_rate_limit_id = 0
+    // For ports 1-100:   meta.udp_rate_limit_id = 0
     // For ports 101-200: meta.udp_rate_limit_id = 1
     // For ports 201-300: meta.udp_rate_limit_id = 2
     // For ports 301-400: meta.udp_rate_limit_id = 3
@@ -193,6 +190,17 @@ control MyIngress(inout headers hdr,
         default_action = drop;
     }
 
+    // Table that checks the state of the selected saved path for only known flows
+    // Only performed in the switch connected to the source host
+    // If it still alive there is an entry on the table, so nothing will happen
+    // If the path is not alive anymore due to failure, the path will be reset
+    // Match key: saved path for the target destination
+    // Actions:
+    //          a) do_nothing  = empty function, just checking if the path is still alive
+    //                           by checking if there is an entry on the table
+    //          b) revoke_path = if the path is not valid anymore due to failure then
+    //                           there will be no entry on the table and this action (default_action)
+    //                           is used to reset the path to 0 and let the switch perform the computation again
     table path_state {
         key = {
             hdr.path.hops: exact;
@@ -239,7 +247,8 @@ control MyIngress(inout headers hdr,
 
         }
 
-        // Drop all traffic apart from IP
+        // Drop all traffic apart from IP and drop traffic with ttl = 0
+        // to avoid infinite loops in the network
         if (!hdr.ipv4.isValid() || hdr.ipv4.ttl == 0) {
             drop(); return;
         }
@@ -293,6 +302,8 @@ control MyIngress(inout headers hdr,
             // i.e. the path header is not yet set. We enable it
             // and query the forwarding_table for the correct path.
 
+            // ADD COMMENT ON WHY WE SWAP THE PROTOCOL
+
             hdr.path.setValid();
             hdr.path.protocol = hdr.ipv4.protocol;
             hdr.ipv4.protocol = TYPE_PATH;
@@ -307,14 +318,14 @@ control MyIngress(inout headers hdr,
                 path_state.apply();
             }
 
-            // check if inter-packet gap is > 100ms (for known flow) or flow unknown
+            // Check if inter-packet gap is > 100ms (for known flow) or flow unknown
             if (meta.flowlet_time_diff > FLOWLET_TIMEOUT || meta.f_hop_count_saved == 0) {
 
                 // Compute hash for UDP and TCP separately
                 // ADD MORE COMMENTS HERE ON THE FUNCTIONALITY
                 if (hdr.udp.isValid()) {
                     meta.classification = CLASS_UDP;
-                    random(meta.hash, (bit<8>)0, (bit<8>) PATH_MULTIPLIER);
+                    random(meta.hash, (bit<8>) 0, (bit<8>) PATH_MULTIPLIER);
                 } else if (hdr.tcp.isValid()) {
                     meta.classification = CLASS_TCP;
                     hash(meta.hash,
@@ -331,10 +342,9 @@ control MyIngress(inout headers hdr,
 
                 // Apply forwarding table
                 forwarding_table.apply();
-                // Save the path, the hop count and the dst MAC address
+                // Save the path and the hop count
                 hops_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hops);
                 hop_count_reg.write((bit<32>)meta.flowlet_register_index, hdr.path.hop_count);
-                dst_mac_addr_reg.write((bit<32>)meta.flowlet_register_index, hdr.ethernet.dstAddr);
 
             }
 
@@ -344,13 +354,12 @@ control MyIngress(inout headers hdr,
                 // Save hop count in the header
                 hdr.path.hop_count = meta.f_hop_count_saved;
 
-                //Read dst MAC address
-                dst_mac_addr_reg.read(hdr.ethernet.dstAddr, (bit<32>)meta.flowlet_register_index);
             }
 
 
         }
 
+        // Every switch on the path performs the following
         // Extract the next hop from the encoded hop list. Let's say the
         // list looks like this: 0x123
         // The last 4 bits (i.e. 0x3) denote the next hop, while the
@@ -380,6 +389,7 @@ control MyIngress(inout headers hdr,
         // Set the egress port
         standard_metadata.egress_spec = meta.next_hop;
 
+        // Write the correct dst MAC address depending on the egress port
         egress_to_mac.apply();
 
         // Decrease ttl
@@ -390,6 +400,8 @@ control MyIngress(inout headers hdr,
             // Once hop_count has reached 0, this means we're now at the
             // last switch before the destination host. Here, we simply remove
             // our header and send the packet to the host.
+
+            // ADD EXTRA COMMENT ON SWAP OF THE PROTOCOLS AGAIN
             hdr.ipv4.protocol = hdr.path.protocol;
             hdr.path.setInvalid();
         }
