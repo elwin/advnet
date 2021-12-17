@@ -1,6 +1,6 @@
 ## Group info
 
-| Group name | O nein, Kahn! |  |  |
+| Group name | Oh nein, Kahn! |  |  |
 | --- | --- | --- | --- |
 | Member 1 | Maša Nešić | mnesic | mnesic@ethz.ch |
 | Member 2 | Alkinoos Sarioglou | asarioglou | asarioglou@ethz.ch |
