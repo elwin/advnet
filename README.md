@@ -29,6 +29,8 @@ available bandwidth.
 Rate-limiting allows peak 1.75 Mbps for UDP flows of each port range (committed 0.875 Mbps). For yellow meter color, we drop
 the packet with a probability of 30% and for red, we drop every time.
 
+## [Poster](poster/09_kahn.pdf)
+
 ## Individual Contributions
 
 ### Maša Nešić
