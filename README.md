@@ -1,6 +1,6 @@
 ## What is this?
 We tackled this project for the course [Advanced Topics in 
-Communication Networks](https://adv-net.ethz.ch) to gain experience in programming switches and optimizing software-defined networks.
+Communication Networks](https://adv-net.ethz.ch) to gain experience in programming switches and optimizing software-defined networks. The poster that gives a good overview on our implementation can be found [here](poster/09_kahn.pdf).
 
 ## Group info
 
@@ -32,8 +32,6 @@ available bandwidth.
 
 Rate-limiting allows peak 1.75 Mbps for UDP flows of each port range (committed 0.875 Mbps). For yellow meter color, we drop
 the packet with a probability of 30% and for red, we drop every time.
-
-## [Poster](poster/09_kahn.pdf)
 
 ## Individual Contributions
 
