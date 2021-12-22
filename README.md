@@ -1,10 +1,14 @@
+## What is this?
+We tackled this project for the course [Advanced Topics in 
+Communication Networks](https://adv-net.ethz.ch) to gain experience in programming switches and optimizing software-defined networks.
+
 ## Group info
 
-| Group name | Oh nein, Kahn! |  |  |
-| --- | --- | --- | --- |
-| Member 1 | Maša Nešić | mnesic | mnesic@ethz.ch |
-| Member 2 | Alkinoos Sarioglou | asarioglou | asarioglou@ethz.ch |
-| Member 3 | Elwin Stephan | stephael | stephael@ethz.ch |
+| Group name | Oh nein, Kahn! |
+| --- | --- |
+| Member 1 | [Maša Nešić](https://github.com/MashaNes) |
+| Member 2 | [Alkinoos Sarioglou](https://github.com/alksarioglou) |
+| Member 3 | [Elwin Stephan](https://github.com/elwin) |
 
 ## Overview
 
